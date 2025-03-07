@@ -1,0 +1,92 @@
+# config/tables.yaml
+
+tables:
+  firewall:
+    name: Custom_Firewall_CL
+    schema_version: "1.0"
+    retention_days: 90
+    batch_size: 1000
+    fields:
+      - name: TimeGenerated
+        type: datetime
+        required: true
+      - name: SourceIP
+        type: string
+        required: true
+      - name: DestinationIP
+        type: string
+        required: true
+      - name: Action
+        type: string
+        required: true
+        allowed_values: ["allow", "deny", "drop"]
+      - name: Protocol
+        type: string
+        required: false
+      - name: SourcePort
+        type: integer
+        required: false
+      - name: DestinationPort
+        type: integer
+        required: false
+      - name: BytesTransferred
+        type: long
+        required: false
+
+  vpn:
+    name: Custom_VPN_CL
+    schema_version: "2.1"
+    retention_days: 30
+    batch_size: 500
+    fields:
+      - name: TimeGenerated
+        type: datetime
+        required: true
+      - name: UserPrincipalName
+        type: string
+        required: true
+      - name: SessionID
+        type: string
+        required: true
+      - name: ClientIP
+        type: string
+        required: true
+      - name: BytesIn
+        type: long
+        required: false
+      - name: BytesOut
+        type: long
+        required: false
+      - name: ConnectionDuration
+        type: integer
+        required: false
+
+transformations:
+  firewall:
+    field_mappings:
+      src_ip: SourceIP
+      dst_ip: DestinationIP
+      action: Action
+      proto: Protocol
+      src_port: SourcePort
+      dst_port: DestinationPort
+      bytes: BytesTransferred
+    
+  vpn:
+    field_mappings:
+      user: UserPrincipalName
+      session: SessionID
+      ip_address: ClientIP
+      bytes_received: BytesIn
+      bytes_sent: BytesOut
+      duration: ConnectionDuration
+
+validation:
+  ip_fields:
+    - SourceIP
+    - DestinationIP
+    - ClientIP
+  timestamp_formats:
+    - "%Y-%m-%dT%H:%M:%S.%fZ"
+    - "%Y-%m-%d %H:%M:%S"
+    - "%b %d %Y %H:%M:%S"

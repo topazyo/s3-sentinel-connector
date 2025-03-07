@@ -1,0 +1,54 @@
+# deployment/kubernetes/base/deployment.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3-sentinel-connector
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: s3-sentinel-connector
+  template:
+    metadata:
+      labels:
+        app: s3-sentinel-connector
+    spec:
+      containers:
+      - name: connector
+        image: ${ACR_NAME}.azurecr.io/s3-sentinel-connector:${IMAGE_TAG}
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        env:
+        - name: ENVIRONMENT
+          valueFrom:
+            configMapKeyRef:
+              name: connector-config
+              key: environment
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: aws-credentials
+              key: access-key
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: aws-credentials
+              key: secret-key
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10

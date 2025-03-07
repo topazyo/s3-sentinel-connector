@@ -1,0 +1,43 @@
+# deployment/kubernetes/overlays/dev/kustomization.yaml
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+bases:
+  - ../../base
+
+namespace: s3-sentinel-dev
+
+commonLabels:
+  environment: dev
+
+resources:
+  - namespace.yaml
+
+configMapGenerator:
+  - name: connector-config
+    literals:
+      - environment=dev
+      - log_level=DEBUG
+      - metrics_interval=30
+      - batch_size=500
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: s3-sentinel-connector
+      spec:
+        replicas: 2
+        template:
+          spec:
+            containers:
+            - name: connector
+              resources:
+                requests:
+                  cpu: "250m"
+                  memory: "512Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "1Gi"

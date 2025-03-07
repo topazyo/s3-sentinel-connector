@@ -1,0 +1,30 @@
+# deployment/kubernetes/base/monitoring.yaml
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: s3-sentinel-connector
+spec:
+  selector:
+    matchLabels:
+      app: s3-sentinel-connector
+  endpoints:
+  - port: metrics
+    interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: s3-sentinel-alerts
+spec:
+  groups:
+  - name: s3-sentinel
+    rules:
+    - alert: HighProcessingLatency
+      expr: s3_sentinel_processing_latency_seconds > 300
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        description: "Log processing latency is high"
+        summary: "High processing latency detected"

@@ -1,0 +1,17 @@
+# config/dev.yaml
+aws:
+  bucket_name: "dev-logs-bucket"
+  
+sentinel:
+  workspace_id: "dev-workspace"
+  dcr_endpoint: "https://dev-dcr.azure.com"
+  rule_id: "dev-rule"
+  stream_name: "dev-stream"
+
+monitoring:
+  metrics_endpoint: "https://dev-metrics.azure.com"
+  alert_webhook: "https://dev-alerts.webhook.com"
+
+database:
+  host: "dev-db.example.com"
+  database: "logs_dev"

@@ -1,0 +1,23 @@
+# config/base.yaml
+aws:
+  region: us-west-2
+  batch_size: 1000
+  max_retries: 3
+  prefix: "logs/"
+
+sentinel:
+  batch_size: 1000
+  retention_days: 90
+  table_name: "Custom_Logs_CL"
+
+monitoring:
+  log_level: "INFO"
+  enable_prometheus: true
+  metrics_interval: 60
+  health_check_interval: 30
+
+database:
+  port: 5432
+  ssl_enabled: true
+  connection_timeout: 30
+  max_connections: 10

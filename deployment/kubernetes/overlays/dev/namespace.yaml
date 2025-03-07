@@ -1,0 +1,9 @@
+# deployment/kubernetes/overlays/dev/namespace.yaml
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: s3-sentinel-dev
+  labels:
+    name: s3-sentinel-dev
+    environment: dev

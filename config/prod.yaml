@@ -1,0 +1,17 @@
+# config/prod.yaml
+aws:
+  bucket_name: "prod-logs-bucket"
+  
+sentinel:
+  workspace_id: "prod-workspace"
+  dcr_endpoint: "https://prod-dcr.azure.com"
+  rule_id: "prod-rule"
+  stream_name: "prod-stream"
+
+monitoring:
+  metrics_endpoint: "https://prod-metrics.azure.com"
+  alert_webhook: "https://prod-alerts.webhook.com"
+
+database:
+  host: "prod-db.example.com"
+  database: "logs_prod"

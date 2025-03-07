@@ -1,0 +1,71 @@
+# .github/workflows/cd.yml
+
+name: CD Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set environment
+      run: |
+        if [[ $GITHUB_REF == refs/tags/v* ]]; then
+          echo "ENVIRONMENT=prod" >> $GITHUB_ENV
+        else
+          echo "ENVIRONMENT=dev" >> $GITHUB_ENV
+        fi
+        
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v1
+    
+    - name: Configure Terraform backend
+      run: |
+        cd deployment/terraform
+        terraform init \
+          -backend-config="storage_account_name=tfstate${{ env.ENVIRONMENT }}" \
+          -backend-config="container_name=tfstate" \
+          -backend-config="key=s3-sentinel-connector.tfstate"
+    
+    - name: Deploy infrastructure
+      run: |
+        ./deployment/scripts/deploy.sh ${{ env.ENVIRONMENT }} ${GITHUB_REF#refs/tags/}
+      env:
+        AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    
+    - name: Run smoke tests
+      run: |
+        ./deployment/scripts/smoke_tests.sh ${{ env.ENVIRONMENT }}
+    
+    - name: Send deployment notification
+      if: always()
+      uses: actions/github-script@v4
+      with:
+        script: |
+          const { repo, owner } = context.repo;
+          const deployment = context.payload.deployment;
+          const environment = '${{ env.ENVIRONMENT }}';
+          const status = '${{ job.status }}';
+          
+          await github.repos.createDeploymentStatus({
+            owner,
+            repo,
+            deployment_id: deployment.id,
+            state: status.toLowerCase(),
+            environment: environment,
+            description: `Deployment to ${environment} ${status.toLowerCase()}`
+          });
