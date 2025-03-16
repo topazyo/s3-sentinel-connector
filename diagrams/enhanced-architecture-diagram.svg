@@ -88,7 +88,7 @@
   
   <!-- Threat Detection & Alerts -->
   <rect x="675" y="370" width="200" height="80" rx="5" ry="5" fill="#FFFFFF" stroke="#0078D4" stroke-width="2" />
-  <text x="775" y="395" font-family="Arial" font-size="14" text-anchor="middle" font-weight="bold" fill="#0078D4">Threat Detection & Alerts</text>
+  <text x="775" y="395" font-family="Arial" font-size="14" text-anchor="middle" font-weight="bold" fill="#0078D4">Threat Detection &amp; Alerts</text>
   <text x="775" y="415" font-family="Arial" font-size="10" text-anchor="middle" fill="#0078D4">Real-time notifications</text>
   <text x="775" y="430" font-family="Arial" font-size="10" text-anchor="middle" fill="#0078D4">Automated response</text>
   <text x="775" y="445" font-family="Arial" font-size="10" text-anchor="middle" fill="#0078D4">~1-2 sec alert generation</text>
