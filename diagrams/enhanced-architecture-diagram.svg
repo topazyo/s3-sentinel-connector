@@ -10,11 +10,11 @@
   <rect x="95" y="140" width="40" height="40" rx="5" ry="5" fill="#FFFFFF" stroke="#232F3E" stroke-width="1" />
   <text x="115" y="165" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">WAF</text>
 
-  <rect x="155" y="140" width="40" height="40" rx="5" ry="5" fill="#FFFFFF" stroke="#232F3E" stroke-width="1" />
-  <text x="175" y="165" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">CloudTrail</text>
+  <rect x="150" y="140" width="50" height="40" rx="5" ry="5" fill="#FFFFFF" stroke="#232F3E" stroke-width="1" />
+  <text x="175" y="165" font-family="Arial" font-size="9" text-anchor="middle" fill="#232F3E">CloudTrail</text>
 
-  <rect x="215" y="140" width="40" height="40" rx="5" ry="5" fill="#FFFFFF" stroke="#232F3E" stroke-width="1" />
-  <text x="235" y="165" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">GuardDuty</text>
+  <rect x="210" y="140" width="50" height="40" rx="5" ry="5" fill="#FFFFFF" stroke="#232F3E" stroke-width="1" />
+  <text x="235" y="165" font-family="Arial" font-size="9" text-anchor="middle" fill="#232F3E">GuardDuty</text>
 
   <text x="175" y="200" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">~5 min generation delay</text>
 
@@ -37,9 +37,9 @@
 
   <rect x="375" y="130" width="200" height="80" rx="5" ry="5" fill="#FFFFFF" stroke="#3776AB" stroke-width="2" />
   <text x="475" y="155" font-family="Arial" font-size="14" text-anchor="middle" font-weight="bold" fill="#3776AB">Log Processing</text>
-  <text x="475" y="175" font-family="Arial" font-size="10" text-anchor="middle" fill="#3776AB">Retrieval from S3</text>
-  <text x="475" y="190" font-family="Arial" font-size="10" text-anchor="middle" fill="#3776AB">Parsing raw logs</text>
-  <text x="475" y="205" font-family="Arial" font-size="10" text-anchor="middle" fill="#3776AB">~2-5 sec processing time</text>
+  <text x="475" y="175" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">Retrieval from S3</text>
+  <text x="475" y="190" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">Parsing raw logs</text>
+  <text x="475" y="205" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">~2-5 sec processing time</text>
 
   <rect x="375" y="250" width="200" height="80" rx="5" ry="5" fill="#FFFFFF" stroke="#3776AB" stroke-width="2" />
   <text x="475" y="275" font-family="Arial" font-size="14" text-anchor="middle" font-weight="bold" fill="#3776AB">Data Transformation</text>
@@ -61,21 +61,21 @@
 
   <rect x="675" y="130" width="200" height="80" rx="5" ry="5" fill="#FFFFFF" stroke="#0078D4" stroke-width="2" />
   <text x="775" y="155" font-family="Arial" font-size="14" text-anchor="middle" font-weight="bold" fill="#0078D4">Ingestion API</text>
-  <text x="775" y="175" font-family="Arial" font-size="10" text-anchor="middle" fill="#0078D4">Secure endpoint</text>
-  <text x="775" y="190" font-family="Arial" font-size="10" text-anchor="middle" fill="#0078D4">Log validation</text>
-  <text x="775" y="205" font-family="Arial" font-size="10" text-anchor="middle" fill="#0078D4">~2-3 sec ingestion time</text>
+  <text x="775" y="175" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">Secure endpoint</text>
+  <text x="775" y="190" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">Log validation</text>
+  <text x="775" y="205" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">~2-3 sec ingestion time</text>
 
   <rect x="675" y="250" width="200" height="80" rx="5" ry="5" fill="#FFFFFF" stroke="#0078D4" stroke-width="2" />
   <text x="775" y="275" font-family="Arial" font-size="14" text-anchor="middle" font-weight="bold" fill="#0078D4">Security Analytics</text>
-  <text x="775" y="295" font-family="Arial" font-size="10" text-anchor="middle" fill="#0078D4">Correlation engine</text>
-  <text x="775" y="310" font-family="Arial" font-size="10" text-anchor="middle" fill="#0078D4">Pattern matching</text>
-  <text x="775" y="325" font-family="Arial" font-size="10" text-anchor="middle" fill="#0078D4">~5-10 sec analysis time</text>
+  <text x="775" y="295" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">Correlation engine</text>
+  <text x="775" y="310" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">Pattern matching</text>
+  <text x="775" y="325" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">~5-10 sec analysis time</text>
 
   <rect x="675" y="370" width="200" height="80" rx="5" ry="5" fill="#FFFFFF" stroke="#0078D4" stroke-width="2" />
   <text x="775" y="395" font-family="Arial" font-size="14" text-anchor="middle" font-weight="bold" fill="#0078D4">Threat Detection &amp; Alerts</text>
-  <text x="775" y="415" font-family="Arial" font-size="10" text-anchor="middle" fill="#0078D4">Real-time notifications</text>
-  <text x="775" y="430" font-family="Arial" font-size="10" text-anchor="middle" fill="#0078D4">Automated response</text>
-  <text x="775" y="445" font-family="Arial" font-size="10" text-anchor="middle" fill="#0078D4">~1-2 sec alert generation</text>
+  <text x="775" y="415" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">Real-time notifications</text>
+  <text x="775" y="430" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">Automated response</text>
+  <text x="775" y="445" font-family="Arial" font-size="10" text-anchor="middle" fill="#232F3E">~1-2 sec alert generation</text>
 
   <path d="M775 210 L775 250" stroke="#0078D4" stroke-width="2" marker-end="url(#arrow)" />
   <path d="M775 330 L775 370" stroke="#0078D4" stroke-width="2" marker-end="url(#arrow)" />
