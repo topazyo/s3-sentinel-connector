@@ -1,0 +1,23 @@
+# config/alerts.yaml
+# Defines the alert rules for the AlertManager.
+
+alerts:
+  - name: "high_cpu_usage"
+    metric: "cpu.usage_percent"  # Example metric name
+    threshold: 85.0
+    operator: ">"  # Supported: >, <, >=, <=, ==, !=
+    window_seconds: 300 # Time window for evaluation (Note: current AlertManager placeholder is stateless)
+    severity: "critical" # E.g., critical, warning, info
+    description: "CPU usage is critically high."
+    # notification_channels: ["email", "slack"] # Optional: specify channels
+
+  - name: "low_disk_space"
+    metric: "disk.free_gb" # Example metric name
+    threshold: 10.0
+    operator: "<"
+    window_seconds: 60
+    severity: "warning"
+    description: "Disk space is running low."
+    # notification_channels: ["slack"]
+
+  # Add more alert rules as needed

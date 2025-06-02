@@ -4,6 +4,8 @@
 
 ## Overview
 
+**Note:** The alerting system (utilizing `AlertManager` from `src/monitoring/alerts.py`) and some advanced custom metrics collection (potentially from `src/monitoring/metrics.py`) are foundational components. While `alerts.py` now exists with a placeholder structure and `metrics.py` (formerly `component_metrics.py`) provides core metrics, the full scope of documented alerting rules and highly specific custom metrics may require further implementation.
+
 The S3 to Sentinel Connector implements a comprehensive monitoring system that provides real-time insights into system performance, health, and security.
 
 ## Monitoring Architecture
