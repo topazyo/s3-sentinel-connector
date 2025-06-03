@@ -39,7 +39,7 @@ setup(
         "Topic :: System :: Logging",
     ],
     project_urls={
-        "Source": "https://github.com/yourusername/s3-sentinel-connector",
+        "Source": "https://github.com/example-org/s3-sentinel-connector",
         "Documentation": "https://s3-sentinel-connector.readthedocs.io/",
     },
 )

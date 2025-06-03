@@ -76,4 +76,4 @@ This document outlines the testing strategy for the S3-Sentinel Connector projec
 - Low coverage in new contributions may require additional tests.
 
 ## Reporting Bugs
-- If a test fails, or you find a bug, please refer to the [CONTRIBUTING.md](CONTRIBUTING.md) guide for details on how to report it.
+- If a test fails, or you find a bug, please refer to the [CONTRIBUTING.md](../CONTRIBUTING.md) guide for details on how to report it.
