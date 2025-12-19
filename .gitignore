@@ -40,6 +40,10 @@ config/local.yaml
 # Copilot agent/private instructions
 /.github/copilot-instructions.md
 
+# Audit and agent files (do not commit local audit notes)
+VIBE_AUDIT_ROADMAP.md
+AGENTS.md
+
 # Test coverage
 .coverage
 htmlcov/
