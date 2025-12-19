@@ -18,11 +18,7 @@
 # Python 3.9+
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements/requirements.txt
-
-# For development, testing, and compliance checks
-pip install -r requirements/requirements-dev.txt
-pip install -r requirements/requirements-test.txt
+pip install -r requirements.txt
 ```
 
 ## Deployment Steps
@@ -90,35 +86,14 @@ az deployment group create \
 
 ### 2. Alert Configuration
 
-Alert conditions are defined in `config/alerts.yaml`. This file is used by the `AlertManager` (see `src/monitoring/alerts.py`) to determine when to trigger alerts based on incoming metrics. Below is an example structure of `config/alerts.yaml`:
-
 ```yaml
 # config/alerts.yaml
-# Defines the alert rules for the AlertManager.
-
 alerts:
-  - name: "high_cpu_usage"
-    metric: "cpu.usage_percent"  # Example metric name that your application reports
-    threshold: 85.0
-    operator: ">"  # Supported: >, <, >=, <=, ==, != (Note: current AlertManager placeholder supports > and <)
-    window_seconds: 300 # Time window for evaluation (Note: current AlertManager placeholder is stateless and evaluates immediately)
-    severity: "critical" # E.g., critical, warning, info
-    description: "CPU usage is critically high on a component."
-    # notification_channels: ["email", "slack"] # Optional: specify channels if implemented in AlertManager
-
-  - name: "low_disk_space"
-    metric: "disk.free_gb" # Example metric name
-    threshold: 10.0
-    operator: "<"
-    window_seconds: 60 # How long the condition must persist (Note: current AlertManager is stateless)
-    severity: "warning"
-    description: "Disk space is running low on a component."
-    # notification_channels: ["slack"]
-
-  # Add more alert rules as needed following the structure above.
-  # Ensure the 'metric' names correspond to metrics reported by your application.
+  - name: high_latency
+    threshold: 300
+    window: 5m
+    severity: high
 ```
-For details on how alerts are processed, refer to the `AlertManager` class in the source code.
 
 ## Validation
 
@@ -128,7 +103,6 @@ pytest tests/validation/
 
 # Check security compliance
 ./scripts/check_compliance.sh
-# (Ensure development dependencies like `safety` are installed via `requirements/requirements-dev.txt` to run this script.)
 
 # Verify connectivity
 ./scripts/verify_connectivity.sh

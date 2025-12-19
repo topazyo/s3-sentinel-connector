@@ -13,7 +13,7 @@ A high-performance, secure connector for transferring logs from AWS S3 to Micros
 
 ```bash
 # Clone the repository
-git clone https://github.com/example-org/s3-sentinel-connector.git
+git clone https://github.com/yourusername/s3-sentinel-connector.git
 cd s3-sentinel-connector
 
 # Create virtual environment
@@ -23,27 +23,12 @@ source venv/bin/activate  # Linux/Mac
 .\venv\Scripts\activate  # Windows
 
 # Install dependencies
-pip install -r requirements/requirements.txt
-
-# For development (including linters, testing tools, and compliance checks)
-pip install -r requirements/requirements-dev.txt
-pip install -r requirements/requirements-test.txt
+pip install -r requirements.txt
 ```
 
 ## Usage
 
-### Command-Line Interface (CLI)
-The project provides a CLI for main operations. After installation (which registers the `s3-sentinel` command), you can use it as follows:
-
-```bash
-# Example: Show help message (once implemented in src/s3_sentinel/cli.py)
-s3-sentinel --help
-
-# Example: Run with a specific configuration (once implemented)
-s3-sentinel --config config/prod.yaml
-```
-
-### Basic usage example:
+Basic usage example:
 ```python
 from src.core.s3_handler import S3Handler
 from src.core.sentinel_router import SentinelRouter

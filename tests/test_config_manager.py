@@ -66,9 +66,9 @@ class TestConfigManager:
         sentinel_config = config_manager.get_config('sentinel')
         assert sentinel_config['workspace_id'] == 'test-workspace'
 
-    def test_env_variable_override(self, test_config_path):
+    def test_env_variable_override(self, test_config_path, monkeypatch):
         """Test environment variable overrides"""
-        os.environ['APP_AWS_REGION'] = 'us-west-2'
+        monkeypatch.setenv('APP_AWS_REGION', 'us-west-2')
         
         config_manager = ConfigManager(
             config_path=str(test_config_path),

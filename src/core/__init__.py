@@ -1,6 +1,6 @@
 # src/core/__init__.py
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import logging
 import asyncio
 from .s3_handler import S3Handler
@@ -80,6 +80,10 @@ class CoreManager:
             Processing results
         """
         try:
+            parser = self.parsers.get(log_type)
+            if not parser:
+                raise ValueError(f"Unsupported log type: {log_type}")
+
             # List objects
             objects = await self.s3_handler.list_objects(bucket, prefix)
             
@@ -87,7 +91,9 @@ class CoreManager:
             results = await self.s3_handler.process_files_batch(
                 bucket,
                 objects,
-                callback=self._process_log_batch
+                parser=parser,
+                callback=self._process_log_batch,
+                log_type=log_type
             )
             
             # Record metrics
@@ -104,24 +110,11 @@ class CoreManager:
             raise
 
     async def _process_log_batch(self, 
-                               batch: List[Dict[str, Any]],
+                               parsed_batch: List[Dict[str, Any]],
                                log_type: str) -> None:
-        """Process batch of logs"""
+        """Route an already-parsed batch to Sentinel."""
         try:
-            # Get appropriate parser
-            parser = self.parsers.get(log_type)
-            if not parser:
-                raise ValueError(f"Unsupported log type: {log_type}")
-            
-            # Parse logs
-            parsed_logs = [
-                parser.parse(log)
-                for log in batch
-            ]
-            
-            # Send to Sentinel
-            await self.sentinel_router.route_logs(log_type, parsed_logs)
-            
+            await self.sentinel_router.route_logs(log_type, parsed_batch)
         except Exception as e:
             self.logger.error(f"Batch processing failed: {str(e)}")
             raise

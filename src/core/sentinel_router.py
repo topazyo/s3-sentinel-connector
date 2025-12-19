@@ -4,7 +4,7 @@ import json
 import logging
 import hashlib
 from typing import Dict, List, Any, Optional, Union
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from azure.monitor.ingestion import LogsIngestionClient
 from azure.identity import DefaultAzureCredential
 from azure.core.exceptions import AzureError
@@ -25,12 +25,14 @@ class TableConfig:
     batch_size: int = 1000
 
 class SentinelRouter:
-    def __init__(self, 
+    def __init__(self,
                  dcr_endpoint: str,
                  rule_id: str,
                  stream_name: str,
                  max_retries: int = 3,
-                 batch_timeout: int = 30):
+                 batch_timeout: int = 30,
+                 logs_client: Optional[Any] = None,
+                 credential: Optional[Any] = None):
         """
         Initialize Sentinel router with configuration
         
@@ -47,8 +49,11 @@ class SentinelRouter:
         self.max_retries = max_retries
         self.batch_timeout = batch_timeout
         
-        # Initialize Azure clients
-        self._initialize_azure_clients()
+        # Initialize Azure clients (can be overridden for tests)
+        if logs_client is not None:
+            self.logs_client = logs_client
+        else:
+            self._initialize_azure_clients(credential)
         
         # Load table configurations
         self.table_configs = self._load_table_configs()
@@ -61,10 +66,10 @@ class SentinelRouter:
             'last_ingestion_time': None
         }
 
-    def _initialize_azure_clients(self):
+    def _initialize_azure_clients(self, credential: Optional[Any] = None):
         """Initialize Azure clients with error handling"""
         try:
-            credential = DefaultAzureCredential()
+            credential = credential or DefaultAzureCredential()
             self.logs_client = LogsIngestionClient(
                 endpoint=self.dcr_endpoint,
                 credential=credential,
@@ -141,7 +146,7 @@ class SentinelRouter:
             'processed': 0,
             'failed': 0,
             'batch_count': 0,
-            'start_time': datetime.utcnow()
+            'start_time': datetime.now(timezone.utc)
         }
 
         try:
@@ -182,9 +187,14 @@ class SentinelRouter:
                 if source in log:
                     transformed_log[target] = log[source]
 
+            # Preserve fields that already match expected targets
+            for key, value in log.items():
+                if key in table_config.required_fields or key in table_config.data_type_map:
+                    transformed_log.setdefault(key, value)
+
             # Add required fields if missing
             if 'TimeGenerated' not in transformed_log:
-                transformed_log['TimeGenerated'] = datetime.utcnow().isoformat()
+                transformed_log['TimeGenerated'] = datetime.now(timezone.utc).isoformat()
 
             # Add metadata
             transformed_log['DataClassification'] = data_classification
@@ -215,7 +225,10 @@ class SentinelRouter:
                            results: Dict[str, Any]) -> None:
         """Ingest a batch of logs to Sentinel"""
         try:
-            body = json.dumps(batch)
+            body = json.dumps(
+                batch,
+                default=lambda o: o.isoformat() if isinstance(o, datetime) else o
+            )
             
             if table_config.compression_enabled:
                 body = self._compress_data(body)
@@ -280,7 +293,7 @@ class SentinelRouter:
         # Store failed batch for retry
         failed_batch_info = {
             'batch_id': batch_id,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'error': str(error),
             'retry_count': 0,
             'data': batch
@@ -290,6 +303,7 @@ class SentinelRouter:
         await self._store_failed_batch(failed_batch_info)
         
         logging.error(f"Batch {batch_id} failed: {str(error)}")
+        self.metrics['failed_records'] += len(batch)
 
     async def _store_failed_batch(self, failed_batch_info: Dict[str, Any]) -> None:
         """Store failed batch for later retry"""
@@ -301,12 +315,12 @@ class SentinelRouter:
         """Update internal metrics"""
         self.metrics['records_processed'] += results['processed']
         self.metrics['failed_records'] += results['failed']
-        self.metrics['last_ingestion_time'] = datetime.utcnow()
+        self.metrics['last_ingestion_time'] = datetime.now(timezone.utc)
 
     async def get_health_status(self) -> Dict[str, Any]:
         """Get router health status"""
         return {
             'status': 'healthy' if self.metrics['failed_records'] == 0 else 'degraded',
             'metrics': self.metrics,
-            'last_check': datetime.utcnow().isoformat()
+            'last_check': datetime.now(timezone.utc).isoformat()
         }

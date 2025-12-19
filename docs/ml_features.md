@@ -2,8 +2,6 @@
 
 ## Overview
 
-**Note:** The machine learning functionalities described herein depend on specific Python packages (`tensorflow`, `joblib`, `scikit-learn`). These have been added to `requirements/requirements.txt`. However, the features themselves may be under active development or require further specific configuration and model training beyond basic package installation.
-
 The S3 to Sentinel Connector incorporates machine learning capabilities for intelligent log processing and anomaly detection.
 
 ## ML Components
@@ -75,7 +73,6 @@ metrics = await connector.evaluate_models()
 # Deploy updated models
 ./scripts/deploy_models.sh
 ```
-Trained models are expected to be stored in the `models/` directory in the project root. The `scripts/deploy_models.sh` script utilizes this directory.
 
 ## Integration Points
 

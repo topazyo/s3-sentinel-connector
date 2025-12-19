@@ -1,7 +1,8 @@
 # tests/test_s3_handler.py
 
 import pytest
-from datetime import datetime, timedelta
+import boto3
+from datetime import datetime, timedelta, timezone
 from src.core.s3_handler import S3Handler, RetryableError
 from botocore.exceptions import ClientError
 import json
@@ -16,7 +17,7 @@ class TestS3Handler:
 
     def test_list_objects_with_time_filter(self, s3_handler, mock_s3_bucket):
         """Test listing objects with time filter"""
-        cutoff_time = datetime.utcnow() - timedelta(hours=1)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=1)
         objects = s3_handler.list_objects(
             mock_s3_bucket,
             prefix="logs/firewall",

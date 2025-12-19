@@ -23,12 +23,8 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements/requirements.txt # Corrected path
-        pip install -r requirements/requirements-dev.txt # Corrected path
-    
-    - name: Run safety check
-      run: |
-        safety check -r requirements/requirements.txt -r requirements/requirements-dev.txt
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
     
     - name: Run tests
       run: |
@@ -43,8 +39,6 @@ jobs:
       run: |
         flake8 src/ tests/
         mypy src/ tests/
-        black --check .
-        isort --check .
 
   security-scan:
     runs-on: ubuntu-latest

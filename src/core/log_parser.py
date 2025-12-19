@@ -3,7 +3,8 @@
 import json
 import re
 import ipaddress
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from abc import ABC, abstractmethod
 
@@ -41,8 +42,10 @@ class FirewallLogParser(LogParser):
         
         self.timestamp_formats = [
             '%Y-%m-%dT%H:%M:%S.%fZ',
+            '%Y-%m-%dT%H:%M:%SZ',
             '%Y-%m-%d %H:%M:%S',
-            '%b %d %Y %H:%M:%S'
+            '%b %d %Y %H:%M:%S',
+            '%Y/%m/%d %H:%M:%S'
         ]
 
     def parse(self, log_data: bytes) -> Dict[str, Any]:
@@ -74,7 +77,7 @@ class FirewallLogParser(LogParser):
             
             # Add additional computed fields
             parsed_data['LogSource'] = 'Firewall'
-            parsed_data['ProcessingTime'] = datetime.utcnow()
+            parsed_data['ProcessingTime'] = datetime.now(timezone.utc)
             
             return parsed_data
             
@@ -119,7 +122,9 @@ class FirewallLogParser(LogParser):
         """Parse timestamp string into datetime object"""
         for fmt in self.timestamp_formats:
             try:
-                return datetime.strptime(timestamp_str, fmt)
+                parsed = datetime.strptime(timestamp_str, fmt)
+                # Attach UTC if no timezone info present
+                return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
             except ValueError:
                 continue
         raise ValueError(f"Unable to parse timestamp: {timestamp_str}")
@@ -186,3 +191,26 @@ class JsonLogParser(LogParser):
                 return False
         
         return True
+
+    def _apply_schema(self, parsed_json: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply basic schema mapping and type validation for JSON logs."""
+        result: Dict[str, Any] = {}
+
+        # Ensure required fields exist
+        required_fields = self.schema.get('required', [])
+        for field in required_fields:
+            if field not in parsed_json:
+                raise LogParserException(f"Missing required field: {field}")
+
+        # Copy fields while enforcing expected types when provided
+        field_types = self.schema.get('types', {})
+        for field, value in parsed_json.items():
+            expected_type = field_types.get(field)
+            if expected_type:
+                if not isinstance(value, expected_type):
+                    raise LogParserException(
+                        f"Field {field} expected {expected_type.__name__}, got {type(value).__name__}"
+                    )
+            result[field] = value
+
+        return result

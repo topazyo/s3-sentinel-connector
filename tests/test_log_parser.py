@@ -1,7 +1,7 @@
 # tests/test_log_parser.py
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from src.core.log_parser import FirewallLogParser, JsonLogParser, LogParserException
 
 class TestFirewallLogParser:
@@ -42,14 +42,14 @@ class TestFirewallLogParser:
     def test_validate_parsed_data(self, firewall_parser):
         """Test validation of parsed log data"""
         valid_data = {
-            'TimeGenerated': datetime.utcnow(),
+            'TimeGenerated': datetime.now(timezone.utc),
             'SourceIP': '192.168.1.1',
             'DestinationIP': '10.0.0.1',
             'FirewallAction': 'allow'
         }
         
         invalid_data = {
-            'TimeGenerated': datetime.utcnow(),
+            'TimeGenerated': datetime.now(timezone.utc),
             'SourceIP': '192.168.1.1'  # Missing required fields
         }
         

@@ -5,8 +5,16 @@ import logging
 import asyncio
 from datetime import datetime
 from .pipeline_monitor import PipelineMonitor
-from .metrics import ComponentMetrics
-from .alerts import AlertManager
+
+try:  # Optional to keep package importable when metrics/alerts stubs are absent
+    from .metrics import ComponentMetrics
+except ImportError:  # pragma: no cover - fail on use
+    ComponentMetrics = None  # type: ignore
+
+try:
+    from .alerts import AlertManager
+except ImportError:  # pragma: no cover - fail on use
+    AlertManager = None  # type: ignore
 
 class MonitoringManager:
     """Central monitoring management class"""
@@ -20,6 +28,9 @@ class MonitoringManager:
         """
         self.config = config
         self.logger = logging.getLogger(__name__)
+
+        if ComponentMetrics is None or AlertManager is None:
+            raise ImportError("MonitoringManager requires metrics and alerts modules to be present")
         
         # Initialize monitoring components
         self._initialize_components()

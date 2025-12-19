@@ -2,7 +2,7 @@
 
 import pytest
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from src.core.sentinel_router import SentinelRouter, TableConfig
 from azure.core.exceptions import AzureError
 
@@ -11,13 +11,13 @@ class TestSentinelRouter:
     def sample_logs(self):
         return [
             {
-                'TimeGenerated': datetime.utcnow(),
+                'TimeGenerated': datetime.now(timezone.utc),
                 'SourceIP': '192.168.1.1',
                 'DestinationIP': '10.0.0.1',
                 'Action': 'allow'
             },
             {
-                'TimeGenerated': datetime.utcnow(),
+                'TimeGenerated': datetime.now(timezone.utc),
                 'SourceIP': '192.168.1.2',
                 'DestinationIP': '10.0.0.2',
                 'Action': 'deny'
@@ -43,6 +43,7 @@ class TestSentinelRouter:
             }
         )
 
+    @pytest.mark.asyncio
     async def test_route_logs(self, sentinel_router, sample_logs, table_config):
         """Test routing logs to Sentinel"""
         results = await sentinel_router.route_logs('firewall', sample_logs)
@@ -51,6 +52,7 @@ class TestSentinelRouter:
         assert results['failed'] == 0
         assert results['batch_count'] == 1
 
+    @pytest.mark.asyncio
     async def test_prepare_log_entry(self, sentinel_router, table_config):
         """Test log entry preparation"""
         log = {
@@ -71,6 +73,7 @@ class TestSentinelRouter:
         assert 'TimeGenerated' in prepared_log
         assert prepared_log['DataClassification'] == 'standard'
 
+    @pytest.mark.asyncio
     async def test_ingest_batch(self, sentinel_router, sample_logs, table_config):
         """Test batch ingestion"""
         results = {'processed': 0, 'failed': 0, 'batch_count': 0}
@@ -100,6 +103,7 @@ class TestSentinelRouter:
         assert result == expected
         assert isinstance(result, type(expected))
 
+    @pytest.mark.asyncio
     async def test_handle_failed_batch(self, sentinel_router, sample_logs):
         """Test failed batch handling"""
         error = AzureError("Test error")
@@ -108,6 +112,7 @@ class TestSentinelRouter:
         # Verify metrics were updated
         assert sentinel_router.metrics['failed_records'] > 0
 
+    @pytest.mark.asyncio
     async def test_health_status(self, sentinel_router):
         """Test health status reporting"""
         status = await sentinel_router.get_health_status()

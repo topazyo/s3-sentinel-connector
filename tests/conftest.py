@@ -3,7 +3,7 @@
 import pytest
 import boto3
 import os
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 from moto import mock_s3
 from azure.identity import DefaultAzureCredential
 from src.core.s3_handler import S3Handler
@@ -70,8 +70,12 @@ def firewall_parser():
 @pytest.fixture
 def sentinel_router(mock_azure_credential):
     """Test Sentinel router instance"""
+    logs_client = MagicMock()
+    logs_client.upload = AsyncMock(return_value=None)
     return SentinelRouter(
         dcr_endpoint="https://test-endpoint",
         rule_id="test-rule",
-        stream_name="test-stream"
+        stream_name="test-stream",
+        logs_client=logs_client,
+        credential=mock_azure_credential
     )

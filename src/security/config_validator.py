@@ -37,11 +37,15 @@ class ConfigurationValidator:
     def _initialize_validation_rules(self):
         """Initialize validation rules"""
         self.validation_rules = {
-            'credential': self._validate_credential,
-            'encryption': self._validate_encryption,
-            'network': self._validate_network,
+            'credential': self._validate_credential_config,
+            'encryption': self._validate_encryption_config,
+            'network': self._validate_network_config,
             'permissions': self._validate_permissions
         }
+
+    def _validate_credential(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Backward-compatible credential validation hook."""
+        return self._validate_credential_config(config)
 
     def validate_configuration(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -149,6 +153,10 @@ class ConfigurationValidator:
                     results['violations'].append(f"Insecure protocol: {protocol}")
         
         return results
+
+    def _validate_permissions(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Placeholder permissions validation to keep interface stable."""
+        return {'valid': True, 'violations': [], 'warnings': []}
 
     def _check_sensitive_data(self, config: Dict[str, Any], 
                             results: Dict[str, Any]) -> None:

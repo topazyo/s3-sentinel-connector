@@ -1,7 +1,7 @@
 # src/security/rotation_manager.py
 
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 import logging
 from .credential_manager import CredentialManager
@@ -111,7 +111,10 @@ class RotationManager:
             return True
             
         max_age = config.get('max_age_days', 90)
-        age = datetime.utcnow() - last_rotation
+        now = datetime.now(timezone.utc)
+        if last_rotation.tzinfo is None:
+            last_rotation = last_rotation.replace(tzinfo=timezone.utc)
+        age = now - last_rotation
         
         return age.days >= max_age
 
@@ -126,7 +129,10 @@ class RotationManager:
         
         last_rotation = state.get('last_rotation')
         if last_rotation:
-            time_since_last = datetime.utcnow() - last_rotation
+            now = datetime.now(timezone.utc)
+            if last_rotation.tzinfo is None:
+                last_rotation = last_rotation.replace(tzinfo=timezone.utc)
+            time_since_last = now - last_rotation
             if time_since_last.total_seconds() < (min_interval * 3600):
                 return False
         
@@ -135,7 +141,7 @@ class RotationManager:
     def _update_rotation_state(self, credential_name: str) -> None:
         """Update rotation state for credential"""
         self._rotation_state[credential_name] = {
-            'last_rotation': datetime.utcnow(),
+            'last_rotation': datetime.now(timezone.utc),
             'rotation_count': self._rotation_state.get(
                 credential_name, {}
             ).get('rotation_count', 0) + 1

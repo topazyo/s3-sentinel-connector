@@ -1,96 +1,23 @@
-# config/base.yaml - Comprehensive Base Configuration Template
-
-app_name: "s3-sentinel-connector"
-environment: "base" # Should be overridden by dev.yaml, prod.yaml, or ENV variables
-
+# config/base.yaml
 aws:
-  region: us-west-2 # Existing
-  bucket_name: "YOUR_S3_BUCKET_NAME_HERE" # Added
-  prefix: "logs/" # Existing
-  batch_size: 1000 # Existing
-  max_retries: 3 # Existing
-  # access_key_id and secret_access_key should be sourced from secrets, not defined here.
+  region: us-west-2
+  batch_size: 1000
+  max_retries: 3
+  prefix: "logs/"
 
 sentinel:
-  workspace_id: "YOUR_SENTINEL_WORKSPACE_ID_HERE" # Added
-  dcr_endpoint: "YOUR_SENTINEL_DCR_ENDPOINT_HERE" # Added
-  rule_id: "YOUR_SENTINEL_RULE_ID_HERE" # Added
-  stream_name: "YOUR_SENTINEL_STREAM_NAME_HERE" # Added
-  table_name: "Custom_Logs_CL" # Existing
-  batch_size: 1000 # Existing
-  retention_days: 90 # Existing
-  # Primary/secondary keys for Sentinel should be sourced from secrets.
+  batch_size: 1000
+  retention_days: 90
+  table_name: "Custom_Logs_CL"
 
 monitoring:
-  log_level: "INFO" # Existing
-  enable_prometheus: true # Existing
-  metrics_interval: 60 # Existing
-  health_check_interval: 30 # Existing
-  metrics_endpoint: "YOUR_METRICS_ENDPOINT_HERE" # Added
-  alert_webhook: "" # Added, empty by default
-  components: # Added - Example list, adjust as per actual components
-    - "s3_handler"
-    - "log_parser"
-    - "sentinel_router"
-    - "ml_connector"
-    - "config_manager"
-  alerts: [] # Added - Placeholder for alert configurations. Example:
-    # - name: "high_cpu_load"
-    #   metric: "cpu_load_percent" # Example metric name
-    #   threshold: 85.5
-    #   operator: ">" # or "<", "==", etc.
-    #   window_minutes: 5
-    #   severity: "critical" # e.g., warning, error, critical
-    #   description: "CPU load is critically high."
-    #   action: "teams_webhook" # or email, pagerduty_event, etc.
+  log_level: "INFO"
+  enable_prometheus: true
+  metrics_interval: 60
+  health_check_interval: 30
 
-database: # Assuming database usage is intended
-  host: "YOUR_DB_HOST_HERE" # Added
-  port: 5432 # Existing
-  database: "YOUR_DB_NAME_HERE" # Added
-  username: "YOUR_DB_USERNAME_HERE" # Added (placeholder, ideally from secrets)
-  password: "YOUR_DB_PASSWORD_HERE_OR_SECRET_REF" # Added (placeholder, ideally from secrets)
-  ssl_enabled: true # Existing
-  connection_timeout: 30 # Existing
-  max_connections: 10 # Existing
-
-azure: # For Key Vault and other Azure service integrations
-  key_vault_url: "https://YOUR-KEYVAULT-NAME.vault.azure.net/" # Added
-
-credentials: # Configuration for how credentials themselves are managed (not the credentials)
-  cache_duration: 3600 # Added - in seconds (e.g., 1 hour)
-  enable_encryption: true # Added - for local caching of secrets if any
-
-security_policy: # Defines security policies for the application
-  min_password_length: 12 # Added
-  require_special_chars: true # Added
-  require_numbers: true # Added
-  max_credential_age_days: 90 # Added
-  allowed_ip_ranges: # Added - Example, restrict further for production
-    - "0.0.0.0/0" # Allows all IPs, refine this for specific needs
-  required_encryption: true # Added
-  min_encryption_bits: 256 # Added
-
-rotation: # Policies for credential rotation
-  aws_credentials: # Example for one type of credential
-    max_age_days: 90 # Added
-    min_rotation_interval_hours: 24 # Added
-  sentinel_api_key: # Another example
-    max_age_days: 180 # Added
-    min_rotation_interval_hours: 24 # Added
-  # Add other credential rotation policies as needed
-
-encryption: # Configuration for data encryption at rest/transit where applicable by app logic
-  key_store_path: "keys/" # Added - Path relative to project root for storing local encryption keys
-
-audit: # Configuration for audit logging
-  log_path: "logs/audit/audit.log" # Added - Path relative to project root
-
-access_control: # Configuration for access control mechanisms like JWT
-  jwt_secret: "YOUR_SECURE_JWT_SECRET_KEY_PLEASE_CHANGE_AND_USE_SECRET_STORE" # Added
-  # token_expiry_minutes: 60 # Example of another JWT parameter
-
-# Add other top-level configuration sections as needed
-# Example:
-# feature_flags:
-#   new_ml_model_enabled: false
+database:
+  port: 5432
+  ssl_enabled: true
+  connection_timeout: 30
+  max_connections: 10
