@@ -37,6 +37,9 @@ ENV/
 .env
 config/local.yaml
 
+# Copilot agent/private instructions
+/.github/copilot-instructions.md
+
 # Test coverage
 .coverage
 htmlcov/
