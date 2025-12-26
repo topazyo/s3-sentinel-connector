@@ -42,7 +42,7 @@ class PipelineMonitor:
                  teams_webhook: Optional[str] = None,
                  slack_webhook: Optional[str] = None,
                  health_timeout: float = 5.0,
-                 enable_background_tasks: bool = True):
+                 enable_background_tasks: bool = False) -> None:
         """
         Initialize pipeline monitoring system
         
@@ -51,6 +51,7 @@ class PipelineMonitor:
             app_name: Application name
             environment: Deployment environment
             alert_configs: List of alert configurations
+            enable_background_tasks: If True, start background tasks immediately (requires event loop)
         """
         self.app_name = app_name
         self.environment = environment
@@ -62,6 +63,9 @@ class PipelineMonitor:
         self.health_timeout = health_timeout
         self.enable_background_tasks = enable_background_tasks
         self._registry = prom.CollectorRegistry()
+        
+        # Initialize logger
+        self.logger = logging.getLogger(__name__)
         
         # Initialize metrics clients
         self._initialize_clients(metrics_endpoint)
@@ -75,14 +79,24 @@ class PipelineMonitor:
         self._metric_cache: Dict[str, Dict[str, Any]] = {}
         self._active_alerts: List[Dict[str, Any]] = []
         
-        # Start background tasks
+        # Tasks initialized empty, started via start() method
         self.tasks: List[asyncio.Task] = []
+        
+        # Auto-start background tasks if explicitly enabled (deprecated pattern)
         if self.enable_background_tasks:
-            self.tasks.extend([
-                asyncio.create_task(self._health_check_loop()),
-                asyncio.create_task(self._metrics_export_loop()),
-                asyncio.create_task(self._alert_check_loop())
-            ])
+            self.logger.warning(
+                "Auto-starting background tasks in __init__ is deprecated. "
+                "Call await monitor.start() explicitly instead."
+            )
+            try:
+                asyncio.get_running_loop()
+                self.tasks.extend([
+                    asyncio.create_task(self._health_check_loop()),
+                    asyncio.create_task(self._metrics_export_loop()),
+                    asyncio.create_task(self._alert_check_loop())
+                ])
+            except RuntimeError:
+                self.logger.error("Cannot create tasks: no event loop running. Call await monitor.start() instead.")
 
     def _initialize_clients(self, metrics_endpoint: str) -> None:
         """Initialize monitoring clients"""
@@ -97,9 +111,9 @@ class PipelineMonitor:
                 endpoint=metrics_endpoint,
                 credential=credential
             )
-            logging.info("Successfully initialized monitoring clients")
+            self.logger.info("Successfully initialized monitoring clients")
         except Exception as e:
-            logging.critical(f"Failed to initialize monitoring clients: {str(e)}")
+            self.logger.critical(f"Failed to initialize monitoring clients: {str(e)}")
             raise
 
     def _initialize_prometheus_metrics(self) -> None:
@@ -147,13 +161,18 @@ class PipelineMonitor:
             registry=self._registry
         )
 
-    async def _start_monitoring_tasks(self) -> None:
-        """Start background monitoring tasks"""
+    async def start(self) -> None:
+        """Start background monitoring tasks (must be called from async context)"""
+        if self.tasks:
+            self.logger.warning("Background tasks already started")
+            return
+            
         self.tasks = [
             asyncio.create_task(self._health_check_loop()),
             asyncio.create_task(self._metrics_export_loop()),
             asyncio.create_task(self._alert_check_loop())
         ]
+        self.logger.info("Started background monitoring tasks")
 
     async def record_metric(self, 
                           metric_name: str, 
@@ -197,7 +216,7 @@ class PipelineMonitor:
             await asyncio.to_thread(self.metrics_client.ingest_metrics, [metric_data])
             
         except Exception as e:
-            logging.error(f"Failed to record metric {metric_name}: {str(e)}")
+            self.logger.error(f"Failed to record metric {metric_name}: {str(e)}")
 
     async def update_component_health(self, 
                                    component: str, 
@@ -224,7 +243,7 @@ class PipelineMonitor:
             labels={'component': component}
         )
 
-        logging.info(f"Component {component} health status: {'healthy' if status else 'unhealthy'}")
+        self.logger.info(f"Component {component} health status: {'healthy' if status else 'unhealthy'}")
 
     async def _health_check_loop(self) -> None:
         """Periodic health check loop"""
@@ -247,7 +266,7 @@ class PipelineMonitor:
                 await asyncio.sleep(60)  # Run every minute
                 
             except Exception as e:
-                logging.error(f"Health check loop error: {str(e)}")
+                self.logger.error(f"Health check loop error: {str(e)}")
                 await asyncio.sleep(5)  # Short sleep on error
 
     async def _alert_check_loop(self) -> None:
@@ -260,7 +279,7 @@ class PipelineMonitor:
                 await asyncio.sleep(30)  # Run every 30 seconds
                 
             except Exception as e:
-                logging.error(f"Alert check loop error: {str(e)}")
+                self.logger.error(f"Alert check loop error: {str(e)}")
                 await asyncio.sleep(5)
 
     async def _metrics_export_loop(self) -> None:
@@ -278,20 +297,20 @@ class PipelineMonitor:
                 await asyncio.sleep(60)  # Export every minute
                 
             except Exception as e:
-                logging.error(f"Metrics export error: {str(e)}")
+                self.logger.error(f"Metrics export error: {str(e)}")
                 await asyncio.sleep(5)
 
     async def _check_alert_condition(self, alert_config: AlertConfig) -> None:
         """Check if alert condition is met and trigger alert if needed"""
         try:
             # Get metric value for alert
-            metric_value = await self._get_metric_value(alert_config.name)
+            metric_value = self._get_metric_value(alert_config.name)
             
             if metric_value > alert_config.threshold:
                 await self._trigger_alert(alert_config, metric_value)
                 
         except Exception as e:
-            logging.error(f"Alert check error for {alert_config.name}: {str(e)}")
+            self.logger.error(f"Alert check error for {alert_config.name}: {str(e)}")
 
     async def _trigger_alert(self, 
                            alert_config: AlertConfig, 
@@ -308,7 +327,7 @@ class PipelineMonitor:
         }
         
         # Log alert
-        logging.warning(f"Alert triggered: {json.dumps(alert_data)}")
+        self.logger.warning(f"Alert triggered: {json.dumps(alert_data)}")
         self._active_alerts.append(alert_data)
         
         # Send to Teams/Slack if configured
@@ -317,7 +336,7 @@ class PipelineMonitor:
         elif alert_config.action == 'slack':
             await self._send_slack_alert(alert_data)
 
-    async def _get_metric_value(self, metric_name: str) -> float:
+    def _get_metric_value(self, metric_name: str) -> float:
         """Return latest cached metric value for alert evaluation."""
         entry = self._metric_cache.get(metric_name)
         if not entry:
@@ -328,7 +347,7 @@ class PipelineMonitor:
         """Send alert to Microsoft Teams"""
         teams_webhook = self._get_teams_webhook()
         if not teams_webhook:
-            logging.warning("Teams webhook not configured; skipping alert for %s", alert_data.get('name'))
+            self.logger.warning("Teams webhook not configured; skipping alert for %s", alert_data.get('name'))
             return
         
         message = {
@@ -354,13 +373,13 @@ class PipelineMonitor:
 
             async with post_ctx as response:
                 if response.status != 200:
-                    logging.error(f"Failed to send Teams alert: {await response.text()}")
+                    self.logger.error(f"Failed to send Teams alert: {await response.text()}")
 
     async def _send_slack_alert(self, alert_data: Dict[str, Any]) -> None:
         """Send alert to Slack if webhook configured."""
         webhook = self.slack_webhook
         if not webhook:
-            logging.warning("Slack webhook not configured; skipping alert for %s", alert_data.get('name'))
+            self.logger.warning("Slack webhook not configured; skipping alert for %s", alert_data.get('name'))
             return
 
         payload = {
@@ -376,7 +395,7 @@ class PipelineMonitor:
 
             async with post_ctx as resp:
                 if resp.status >= 400:
-                    logging.error("Failed to send Slack alert (%s): %s", alert_data.get('name'), await resp.text())
+                    self.logger.error("Failed to send Slack alert (%s): %s", alert_data.get('name'), await resp.text())
 
     def _default_alert_configs(self) -> List[AlertConfig]:
         """Default alert configurations"""
@@ -413,7 +432,7 @@ class PipelineMonitor:
             'component_health': self.component_health,
             'metrics': self._collect_current_metrics(),
             'alerts': self._get_active_alerts(),
-            'last_updated': datetime.utcnow().isoformat()
+            'last_updated': datetime.now(timezone.utc).isoformat()
         }
 
     def _collect_current_metrics(self) -> List[Dict[str, Any]]:
@@ -427,7 +446,7 @@ class PipelineMonitor:
         try:
             await asyncio.to_thread(self.metrics_client.ingest_metrics, metrics)
         except Exception as e:
-            logging.error(f"Azure Monitor export failed: {str(e)}")
+            self.logger.error(f"Azure Monitor export failed: {str(e)}")
 
     def _export_to_prometheus(self, metrics: List[Dict[str, Any]]) -> None:
         """Prometheus client exposes metrics via collector registry; no action needed."""
@@ -484,8 +503,23 @@ class PipelineMonitor:
             return {'status': False, 'checked_at': datetime.now(timezone.utc).isoformat(), 'error': str(e)}
 
     async def _check_pipeline_lag(self) -> float:
-        """Placeholder lag computation; returns 0 when no data available."""
-        return 0.0
+        """Compute processing lag based on time since last logs_processed metric."""
+        latest = self._metric_cache.get('logs_processed')
+        if not latest:
+            return 0.0
+
+        ts = latest.get('timestamp')
+        if not ts:
+            return 0.0
+
+        try:
+            last_processed = datetime.fromisoformat(ts)
+            if last_processed.tzinfo is None:
+                last_processed = last_processed.replace(tzinfo=timezone.utc)
+            lag_seconds = (datetime.now(timezone.utc) - last_processed).total_seconds()
+            return max(lag_seconds, 0.0)
+        except Exception:
+            return 0.0
 
     def _get_teams_webhook(self) -> Optional[str]:
         """Retrieve Teams webhook URL if configured."""

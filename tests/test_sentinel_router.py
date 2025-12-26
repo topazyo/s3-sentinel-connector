@@ -115,7 +115,7 @@ class TestSentinelRouter:
     @pytest.mark.asyncio
     async def test_health_status(self, sentinel_router):
         """Test health status reporting"""
-        status = await sentinel_router.get_health_status()
+        status = sentinel_router.get_health_status()
         
         assert 'status' in status
         assert 'metrics' in status

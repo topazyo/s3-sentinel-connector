@@ -7,15 +7,26 @@ from .s3_handler import S3Handler
 from .log_parser import FirewallLogParser, JsonLogParser
 from .sentinel_router import SentinelRouter
 
+__all__ = [
+    'CoreManager',
+    'S3Handler',
+    'FirewallLogParser',
+    'JsonLogParser',
+    'SentinelRouter'
+]
+
 class CoreManager:
     """Central core functionality management class"""
     
     def __init__(self, 
                  config: Dict[str, Any],
                  security_manager: Any,
-                 monitoring_manager: Any):
+                 monitoring_manager: Any) -> None:
         """
-        Initialize core components
+        Initialize core components.
+        
+        NOTE: Components are not fully initialized yet. Call the create()
+        factory method or await initialize() to complete setup.
         
         Args:
             config: Core configuration
@@ -27,10 +38,42 @@ class CoreManager:
         self.monitoring_manager = monitoring_manager
         self.logger = logging.getLogger(__name__)
         
-        # Initialize core components
-        self._initialize_components()
+        # Components set to None initially, initialized via async method
+        self.s3_handler: Optional[S3Handler] = None
+        self.sentinel_router: Optional[SentinelRouter] = None
+        self.parsers: Dict[str, Any] = {}
+        self._initialized = False
+    
+    @classmethod
+    async def create(cls,
+                    config: Dict[str, Any],
+                    security_manager: Any,
+                    monitoring_manager: Any) -> 'CoreManager':
+        """
+        Factory method to create and initialize CoreManager asynchronously.
+        
+        Args:
+            config: Core configuration
+            security_manager: Security manager instance
+            monitoring_manager: Monitoring manager instance
+            
+        Returns:
+            Fully initialized CoreManager instance
+        """
+        instance = cls(config, security_manager, monitoring_manager)
+        await instance.initialize()
+        return instance
+    
+    async def initialize(self) -> None:
+        """Initialize core components asynchronously"""
+        if self._initialized:
+            self.logger.warning("CoreManager already initialized")
+            return
+            
+        await self._initialize_components()
+        self._initialized = True
 
-    async def _initialize_components(self):
+    async def _initialize_components(self) -> None:
         """Initialize core components"""
         try:
             # Get AWS credentials
@@ -78,17 +121,26 @@ class CoreManager:
             
         Returns:
             Processing results
+            
+        Raises:
+            RuntimeError: If CoreManager not initialized
         """
+        if not self._initialized:
+            raise RuntimeError(
+                "CoreManager not initialized. Call await initialize() or use "
+                "await CoreManager.create() factory method."
+            )
+            
         try:
             parser = self.parsers.get(log_type)
             if not parser:
                 raise ValueError(f"Unsupported log type: {log_type}")
 
-            # List objects
-            objects = await self.s3_handler.list_objects(bucket, prefix)
+            # List objects - use async variant
+            objects = await self.s3_handler.list_objects_async(bucket, prefix)
             
-            # Process in batches
-            results = await self.s3_handler.process_files_batch(
+            # Process in batches - use async variant
+            results = await self.s3_handler.process_files_batch_async(
                 bucket,
                 objects,
                 parser=parser,

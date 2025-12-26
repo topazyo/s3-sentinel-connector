@@ -1,11 +1,9 @@
 # src/security/encryption.py
 
 from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import base64
 import os
+import time
 from typing import Union, Optional
 import logging
 from dataclasses import dataclass
@@ -19,7 +17,7 @@ class EncryptionConfig:
     algorithm: str = 'AES-256-GCM'
 
 class EncryptionManager:
-    def __init__(self, key_store_path: str, config: Optional[EncryptionConfig] = None):
+    def __init__(self, key_store_path: str, config: Optional[EncryptionConfig] = None) -> None:
         """
         Initialize encryption manager
         
@@ -95,6 +93,66 @@ class EncryptionManager:
         self._reencrypt_data(old_key, new_key)
         
         return new_key
+    
+    def _reencrypt_data(self, old_key: bytes, new_key: bytes) -> None:
+        """
+        Re-encrypt data with new key after key rotation.
+        
+        Args:
+            old_key: Previous encryption key
+            new_key: New encryption key
+            
+        Note:
+            This method scans the key store directory for .encrypted files
+            and re-encrypts them with the new key. If you have encrypted
+            data stored elsewhere (database, etc), you should override
+            this method or extend it to handle those cases.
+        """
+        try:
+            old_fernet = Fernet(old_key)
+            new_fernet = Fernet(new_key)
+            
+            # Look for encrypted files in key store directory
+            encrypted_files = [
+                f for f in os.listdir(self.key_store_path)
+                if f.endswith('.encrypted')
+            ]
+            
+            reencrypted_count = 0
+            for filename in encrypted_files:
+                filepath = os.path.join(self.key_store_path, filename)
+                
+                try:
+                    # Read encrypted data
+                    with open(filepath, 'rb') as f:
+                        encrypted_data = f.read()
+                    
+                    # Decrypt with old key
+                    decrypted_data = old_fernet.decrypt(encrypted_data)
+                    
+                    # Re-encrypt with new key
+                    reencrypted_data = new_fernet.encrypt(decrypted_data)
+                    
+                    # Write back to file
+                    with open(filepath, 'wb') as f:
+                        f.write(reencrypted_data)
+                    
+                    reencrypted_count += 1
+                    self.logger.debug(f"Re-encrypted file: {filename}")
+                    
+                except Exception as e:
+                    self.logger.error(
+                        f"Failed to re-encrypt {filename}: {str(e)}"
+                    )
+                    # Continue with other files, don't abort entire rotation
+                    
+            self.logger.info(
+                f"Key rotation complete. Re-encrypted {reencrypted_count} files."
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Re-encryption process failed: {str(e)}")
+            raise
 
     def encrypt(self, data: Union[str, bytes]) -> bytes:
         """

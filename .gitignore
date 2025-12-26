@@ -47,3 +47,47 @@ AGENTS.md
 # Test coverage
 .coverage
 htmlcov/
+
+# Project-specific build / dev artifacts
+failed_batches/
+temp_test_output.txt
+
+# Python packaging and environments
+.venv/
+env/
+venv/
+ENV/
+pip-wheel-metadata/
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/version info
+*.manifest
+*.spec
+
+# Unit test / coverage outputs
+.pytest_cache/
+nosetests.xml
+coverage.xml
+test-results.xml
+
+# PyCharm
+.idea/
+.idea/*
+*.iml
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Generated docs
+docs/_build/
+
+# Local secrets and credentials
+.env.local
+secrets.json

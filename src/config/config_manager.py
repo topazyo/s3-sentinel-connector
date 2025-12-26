@@ -64,7 +64,7 @@ class ConfigManager:
                  config_path: str,
                  environment: str,
                  vault_url: Optional[str] = None,
-                 enable_hot_reload: bool = True):
+                 enable_hot_reload: bool = True) -> None:
         """
         Initialize configuration manager
         
@@ -117,7 +117,7 @@ class ConfigManager:
                 self.logger.info("Successfully initialized Azure Key Vault client")
             except Exception as e:
                 self.logger.error(f"Failed to initialize Key Vault client: {str(e)}")
-                raise ConfigurationError("Failed to initialize secrets management")
+                raise ConfigurationError("Failed to initialize secrets management") from e
 
     def _start_config_watcher(self) -> None:
         """Start watching configuration files for changes"""
@@ -134,7 +134,6 @@ class ConfigManager:
         observer.start()
         self.logger.info("Started configuration file watcher")
 
-    @lru_cache(maxsize=1)
     def get_config(self, component: str) -> Dict[str, Any]:
         """
         Get configuration for a specific component
@@ -174,7 +173,7 @@ class ConfigManager:
                 
             except Exception as e:
                 self.logger.error(f"Failed to reload configuration: {str(e)}")
-                raise ConfigurationError(f"Configuration reload failed: {str(e)}")
+                raise ConfigurationError(f"Configuration reload failed: {str(e)}") from e
 
     def _load_yaml_config(self, config_name: str) -> Dict[str, Any]:
         """Load YAML configuration file"""
@@ -186,7 +185,7 @@ class ConfigManager:
             return {}
         except Exception as e:
             self.logger.error(f"Failed to load {config_name} configuration: {str(e)}")
-            raise ConfigurationError(f"Failed to load {config_name} configuration")
+            raise ConfigurationError(f"Failed to load {config_name} configuration") from e
 
     def _merge_configs(self, base: Dict[str, Any], 
                       override: Dict[str, Any]) -> Dict[str, Any]:
@@ -240,11 +239,22 @@ class ConfigManager:
 
     def _validate_aws_config(self, config: Dict[str, Any]) -> None:
         """Validate AWS configuration"""
-        # Fill in credentials from environment or placeholders to support test configs
+        # Resolve credentials from Key Vault or secure sources
         if not config.get('access_key_id'):
-            config['access_key_id'] = os.environ.get('AWS_ACCESS_KEY_ID', 'test-access-key')
+            # Default to Key Vault reference for production
+            config['access_key_id'] = self._resolve_secret_reference(
+                'keyvault:aws-access-key-id' if self.vault_url else 'test-access-key'
+            )
+        else:
+            # Resolve if it's a reference
+            config['access_key_id'] = self._resolve_secret_reference(config['access_key_id'])
+        
         if not config.get('secret_access_key'):
-            config['secret_access_key'] = os.environ.get('AWS_SECRET_ACCESS_KEY', 'test-secret-key')
+            config['secret_access_key'] = self._resolve_secret_reference(
+                'keyvault:aws-secret-access-key' if self.vault_url else 'test-secret-key'
+            )
+        else:
+            config['secret_access_key'] = self._resolve_secret_reference(config['secret_access_key'])
 
         required_fields = ['region', 'bucket_name']
         for field in required_fields:
@@ -253,10 +263,21 @@ class ConfigManager:
 
     def _validate_sentinel_config(self, config: Dict[str, Any]) -> None:
         """Validate Sentinel configuration"""
+        # Resolve Sentinel endpoints and IDs from Key Vault
         if not config.get('dcr_endpoint'):
-            config['dcr_endpoint'] = os.environ.get('SENTINEL_DCR_ENDPOINT', 'https://sentinel.test.endpoint')
+            config['dcr_endpoint'] = self._resolve_secret_reference(
+                'keyvault:sentinel-dcr-endpoint' if self.vault_url else 'https://sentinel.test.endpoint'
+            )
+        else:
+            config['dcr_endpoint'] = self._resolve_secret_reference(config['dcr_endpoint'])
+        
         if not config.get('rule_id'):
-            config['rule_id'] = os.environ.get('SENTINEL_RULE_ID', 'test-rule-id')
+            config['rule_id'] = self._resolve_secret_reference(
+                'keyvault:sentinel-rule-id' if self.vault_url else 'test-rule-id'
+            )
+        else:
+            config['rule_id'] = self._resolve_secret_reference(config['rule_id'])
+        
         if not config.get('stream_name'):
             config['stream_name'] = 'test-stream'
         if not config.get('table_name'):
@@ -266,6 +287,65 @@ class ConfigManager:
         for field in required_fields:
             if not config.get(field):
                 raise ConfigurationError(f"Missing required Sentinel configuration: {field}")
+
+    def _resolve_secret_reference(self, value: str) -> str:
+        """
+        Resolve secret reference from Key Vault or environment
+        
+        Args:
+            value: Value that may contain 'keyvault:secret-name' or 'env:VAR_NAME' references
+        
+        Returns:
+            Resolved secret value
+        """
+        if not isinstance(value, str):
+            return value
+        
+        # Support keyvault:secret-name pattern
+        if value.startswith('keyvault:'):
+            secret_name = value.split(':', 1)[1]
+            try:
+                if self.vault_url and self.secret_client:
+                    secret = self.secret_client.get_secret(secret_name)
+                    self.logger.info(f"Resolved secret '{secret_name}' from Key Vault")
+                    return secret.value
+                else:
+                    self.logger.warning(f"Key Vault not configured, cannot resolve '{secret_name}'")
+                    # Fall back to environment variable with same name
+                    env_fallback = os.environ.get(secret_name.upper().replace('-', '_'), '')
+                    
+                    # In production, fail loudly if Key Vault was expected but unavailable
+                    if self.environment == 'prod' and not env_fallback:
+                        raise ConfigurationError(
+                            f"Production environment requires Key Vault for secret '{secret_name}'. "
+                            f"Key Vault URL: {self.vault_url or 'not configured'}. "
+                            "Environment fallback not allowed in production."
+                        )
+                    
+                    return env_fallback
+            except Exception as e:
+                self.logger.error(f"Failed to resolve secret '{secret_name}' from Key Vault: {e}")
+                env_fallback = os.environ.get(secret_name.upper().replace('-', '_'), '')
+                
+                # In production, fail loudly instead of falling back
+                if self.environment == 'prod':
+                    raise ConfigurationError(
+                        f"Production environment cannot fallback to env vars for secret '{secret_name}'. "
+                        f"Key Vault must be accessible. Error: {e}"
+                    ) from e
+                
+                return env_fallback
+        
+        # Support env:VAR_NAME pattern (legacy, but secure when documented)
+        elif value.startswith('env:'):
+            env_var = value.split(':', 1)[1]
+            result = os.environ.get(env_var, '')
+            if not result:
+                self.logger.warning(f"Environment variable '{env_var}' not set")
+            return result
+        
+        # Return value as-is if no special prefix
+        return value
 
     async def get_secret(self, secret_name: str) -> str:
         """
@@ -285,7 +365,7 @@ class ConfigManager:
             return secret.value
         except Exception as e:
             self.logger.error(f"Failed to retrieve secret {secret_name}: {str(e)}")
-            raise ConfigurationError(f"Failed to retrieve secret {secret_name}")
+            raise ConfigurationError(f"Failed to retrieve secret {secret_name}") from e
 
     def get_database_config(self) -> DatabaseConfig:
         """Get database configuration as dataclass"""

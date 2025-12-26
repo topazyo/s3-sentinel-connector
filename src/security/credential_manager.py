@@ -2,7 +2,7 @@
 
 from typing import Optional, Dict, Any
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from azure.keyvault.secrets.aio import SecretClient
 from azure.identity.aio import (
     DefaultAzureCredential,
@@ -16,7 +16,7 @@ class CredentialManager:
                  vault_url: str,
                  cache_duration: int = 3600,
                  enable_encryption: bool = True,
-                 encryption_secret_name: str = "credential-encryption-key"):
+                 encryption_secret_name: str = "credential-encryption-key") -> None:
         """
         Initialize credential manager
         
@@ -46,7 +46,7 @@ class CredentialManager:
 
     def _setup_logging(self):
         """Configure secure logging"""
-        self.logger = logging.getLogger('SecurityManager')
+        self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
         
         # Ensure sensitive data isn't logged
@@ -128,7 +128,7 @@ class CredentialManager:
         if credential_name not in self._cache_times:
             return False
             
-        age = datetime.utcnow() - self._cache_times[credential_name]
+        age = datetime.now(timezone.utc) - self._cache_times[credential_name]
         return age.total_seconds() < self.cache_duration
 
     async def _get_from_cache(self, credential_name: str) -> Optional[str]:
@@ -164,7 +164,7 @@ class CredentialManager:
         else:
             self._cache[credential_name] = value
             
-        self._cache_times[credential_name] = datetime.utcnow()
+        self._cache_times[credential_name] = datetime.now(timezone.utc)
 
     async def rotate_credential(self, 
                               credential_name: str, 

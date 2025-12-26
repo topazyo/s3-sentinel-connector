@@ -1,7 +1,6 @@
 # src/core/log_parser.py
 
 import json
-import re
 import ipaddress
 import logging
 from datetime import datetime, timezone
@@ -28,7 +27,8 @@ class LogParser(ABC):
 class FirewallLogParser(LogParser):
     """Parser for firewall logs"""
     
-    def __init__(self):
+    def __init__(self) -> None:
+        self.logger = logging.getLogger(__name__)
         self.field_mappings = {
             'src_ip': 'SourceIP',
             'dst_ip': 'DestinationIP',
@@ -99,7 +99,7 @@ class FirewallLogParser(LogParser):
         # Check required fields
         for field in required_fields:
             if field not in parsed_data:
-                logging.error(f"Missing required field: {field}")
+                self.logger.error(f"Missing required field: {field}")
                 return False
         
         # Validate IP addresses
@@ -107,13 +107,13 @@ class FirewallLogParser(LogParser):
             ipaddress.ip_address(parsed_data['SourceIP'])
             ipaddress.ip_address(parsed_data['DestinationIP'])
         except ValueError:
-            logging.error("Invalid IP address format")
+            self.logger.error("Invalid IP address format")
             return False
         
         # Validate action
         valid_actions = ['allow', 'deny', 'drop', 'reset']
         if parsed_data['FirewallAction'].lower() not in valid_actions:
-            logging.error(f"Invalid firewall action: {parsed_data['FirewallAction']}")
+            self.logger.error(f"Invalid firewall action: {parsed_data['FirewallAction']}")
             return False
         
         return True
@@ -155,7 +155,7 @@ class FirewallLogParser(LogParser):
 class JsonLogParser(LogParser):
     """Parser for JSON-formatted logs"""
     
-    def __init__(self, schema: Optional[Dict] = None):
+    def __init__(self, schema: Optional[Dict] = None) -> None:
         self.schema = schema or {}
         
     def parse(self, log_data: bytes) -> Dict[str, Any]:

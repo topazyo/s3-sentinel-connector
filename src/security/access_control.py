@@ -6,6 +6,10 @@ import jwt
 import time
 from functools import wraps
 import logging
+from contextvars import ContextVar
+
+# Context variable to store current user in async contexts
+_current_user_context: ContextVar[Optional[str]] = ContextVar('current_user', default=None)
 
 @dataclass
 class Role:
@@ -22,7 +26,7 @@ class User:
     active: bool = True
 
 class AccessControl:
-    def __init__(self, jwt_secret: str):
+    def __init__(self, jwt_secret: str) -> None:
         """
         Initialize access control
         
@@ -87,7 +91,7 @@ class AccessControl:
         except jwt.ExpiredSignatureError:
             raise ValueError("Token has expired")
         except jwt.InvalidTokenError as e:
-            raise ValueError(f"Invalid token: {str(e)}")
+            raise ValueError(f"Invalid token: {str(e)}") from e
 
     def require_permission(self, permission: str):
         """Decorator for permission-based access control"""
@@ -105,3 +109,47 @@ class AccessControl:
                 return func(*args, **kwargs)
             return wrapper
         return decorator
+    
+    def _get_current_user(self) -> str:
+        """
+        Get current user from context.
+        
+        Returns:
+            Username string
+            
+        Raises:
+            RuntimeError: If no user context is set
+            
+        Note:
+            User context should be set using set_current_user() before
+            calling methods protected by @require_permission decorator.
+        """
+        username = _current_user_context.get()
+        if username is None:
+            raise RuntimeError(
+                "No user context set. Call set_current_user() before "
+                "invoking permission-protected methods."
+            )
+        return username
+    
+    def set_current_user(self, username: str) -> None:
+        """
+        Set current user in context.
+        
+        Args:
+            username: Username to set as current user
+            
+        Note:
+            This should be called at the start of request handling,
+            typically after validating a JWT token.
+        """
+        _current_user_context.set(username)
+    
+    def clear_current_user(self) -> None:
+        """
+        Clear current user from context.
+        
+        Note:
+            Should be called at end of request handling for cleanup.
+        """
+        _current_user_context.set(None)

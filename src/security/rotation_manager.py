@@ -9,7 +9,7 @@ from .credential_manager import CredentialManager
 class RotationManager:
     def __init__(self, 
                  credential_manager: CredentialManager,
-                 rotation_config: Dict[str, Any]):
+                 rotation_config: Dict[str, Any]) -> None:
         """
         Initialize rotation manager
         

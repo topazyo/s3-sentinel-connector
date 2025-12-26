@@ -1,12 +1,12 @@
 # src/utils/transformations.py
 
-from typing import Any, Dict, List, Optional, Union, Callable
+from typing import Any, Dict, List, Callable
 from datetime import datetime
 import json
 import re
 
 class DataTransformer:
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize data transformer"""
         self._initialize_transformers()
 
@@ -103,8 +103,8 @@ class DataTransformer:
         try:
             ip = ipaddress.ip_address(value)
             return str(ip)
-        except ValueError:
-            raise ValueError(f"Invalid IP address: {value}")
+        except ValueError as e:
+            raise ValueError(f"Invalid IP address: {value}") from e
 
     def _transform_integer(self, 
                          value: Any,
@@ -112,8 +112,8 @@ class DataTransformer:
         """Transform value to integer"""
         try:
             return int(value)
-        except (TypeError, ValueError):
-            raise ValueError(f"Unable to convert to integer: {value}")
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Unable to convert to integer: {value}") from e
 
     def _transform_float(self, 
                         value: Any,
@@ -121,8 +121,8 @@ class DataTransformer:
         """Transform value to float"""
         try:
             return float(value)
-        except (TypeError, ValueError):
-            raise ValueError(f"Unable to convert to float: {value}")
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Unable to convert to float: {value}") from e
 
     def _transform_boolean(self, 
                          value: Any,
@@ -177,8 +177,8 @@ class DataTransformer:
             
         try:
             return json.loads(value)
-        except (TypeError, json.JSONDecodeError):
-            raise ValueError(f"Unable to parse JSON: {value}")
+        except (TypeError, json.JSONDecodeError) as e:
+            raise ValueError(f"Unable to parse JSON: {value}") from e
 
     def _transform_list(self, 
                        value: Any,

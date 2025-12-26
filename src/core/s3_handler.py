@@ -5,13 +5,13 @@ import gzip
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from ..utils.error_handling import RetryableError, retry_with_backoff
+from ..utils.error_handling import RetryableError
 from .log_parser import LogParser
 
 class S3Handler:
@@ -21,7 +21,7 @@ class S3Handler:
                  region: str,
                  max_retries: int = 3,
                  batch_size: int = 10,
-                 max_threads: int = 5):
+                 max_threads: int = 5) -> None:
         """
         Initialize S3 handler with configuration and monitoring
         

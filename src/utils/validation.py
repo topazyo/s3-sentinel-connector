@@ -1,6 +1,6 @@
 # src/utils/validation.py
 
-from typing import Any, Dict, List, Optional, Union, Callable
+from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass
 import re
 import ipaddress
@@ -16,7 +16,7 @@ class ValidationRule:
     error_message: Optional[str] = None
 
 class DataValidator:
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize data validator"""
         self._initialize_validators()
 

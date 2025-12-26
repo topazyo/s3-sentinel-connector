@@ -3,7 +3,7 @@
 from typing import Dict, Any, Optional
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from .pipeline_monitor import PipelineMonitor
 
 try:  # Optional to keep package importable when metrics/alerts stubs are absent
@@ -16,10 +16,17 @@ try:
 except ImportError:  # pragma: no cover - fail on use
     AlertManager = None  # type: ignore
 
+__all__ = [
+    'MonitoringManager',
+    'PipelineMonitor',
+    'ComponentMetrics',
+    'AlertManager'
+]
+
 class MonitoringManager:
     """Central monitoring management class"""
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any]) -> None:
         """
         Initialize monitoring components
         
@@ -105,7 +112,7 @@ class MonitoringManager:
             return {
                 'status': 'healthy' if metrics['error_rate'] < 0.05 else 'degraded',
                 'metrics': metrics,
-                'last_check': datetime.utcnow().isoformat()
+                'last_check': datetime.now(timezone.utc).isoformat()
             }
         except Exception as e:
             self.logger.error(f"Failed to get component health: {str(e)}")

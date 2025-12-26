@@ -1,7 +1,7 @@
 # src/monitoring/component_metrics.py
 
-from typing import Dict, Any
-from datetime import datetime
+from typing import Dict, Any, Optional
+from datetime import datetime, timezone
 import asyncio
 from dataclasses import dataclass
 
@@ -17,7 +17,7 @@ class ComponentMetrics:
             'error_count': 0,
             'processing_time': 0,
             'batch_sizes': [],
-            'start_time': datetime.utcnow()
+            'start_time': datetime.now(timezone.utc)
         }
 
     def record_processing(self, 
@@ -36,6 +36,18 @@ class ComponentMetrics:
             self.metrics['error_types'] = {}
         self.metrics['error_types'][error_type] = \
             self.metrics['error_types'].get(error_type, 0) + 1
+
+    def record_metric(self, metric_name: str, value: float, labels: Optional[Dict[str, str]] = None) -> None:
+        """Record a generic metric value"""
+        if 'custom_metrics' not in self.metrics:
+            self.metrics['custom_metrics'] = {}
+        if metric_name not in self.metrics['custom_metrics']:
+            self.metrics['custom_metrics'][metric_name] = []
+        self.metrics['custom_metrics'][metric_name].append({
+            'value': value,
+            'labels': labels or {},
+            'timestamp': datetime.now(timezone.utc)
+        })
 
     def get_metrics(self) -> Dict[str, Any]:
         """Get current metrics"""
@@ -58,5 +70,5 @@ class ComponentMetrics:
             'error_count': 0,
             'processing_time': 0,
             'batch_sizes': [],
-            'start_time': datetime.utcnow()
+            'start_time': datetime.now(timezone.utc)
         }

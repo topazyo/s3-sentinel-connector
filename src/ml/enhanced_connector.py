@@ -3,14 +3,22 @@
 import numpy as np
 import pandas as pd
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime, timedelta
-import tensorflow as tf
+from datetime import datetime, timedelta, timezone
+import hashlib
 import joblib
 from sklearn.preprocessing import StandardScaler
 import logging
 from dataclasses import dataclass
 import asyncio
 from collections import defaultdict
+
+# Optional TensorFlow import
+try:
+    import tensorflow as tf
+    TENSORFLOW_AVAILABLE = True
+except ImportError:
+    TENSORFLOW_AVAILABLE = False
+    tf = None  # type: ignore
 
 @dataclass
 class MLConfig:
@@ -23,15 +31,34 @@ class MLConfig:
     cache_size: int = 10000
 
 class MLEnhancedConnector:
-    def __init__(self, config: Optional[MLConfig] = None):
+    def __init__(self, config: Optional[MLConfig] = None) -> None:
         """
         Initialize ML-enhanced connector
         
         Args:
             config: ML configuration
+            
+        Raises:
+            ImportError: If TensorFlow is required but not installed
         """
         self.config = config or MLConfig()
         self.logger = logging.getLogger(__name__)
+        
+        # Check TensorFlow availability
+        if not TENSORFLOW_AVAILABLE:
+            self.logger.warning(
+                "TensorFlow not available. ML features will be disabled. "
+                "Install with: pip install tensorflow"
+            )
+            self.ml_enabled = False
+            self.anomaly_detector = None
+            self.log_classifier = None
+            self.feature_importance = None
+            self._initialize_preprocessors()
+            self._initialize_caches()
+            return
+        
+        self.ml_enabled = True
         
         # Initialize ML components
         self._initialize_models()
@@ -88,8 +115,7 @@ class MLEnhancedConnector:
         self.prediction_cache = {}
         self.feature_cache = {}
         self.pattern_cache = defaultdict(int)
-        self.anomaly_history = []
-
+        self.anomaly_history = []        self.recent_features = []  # For preprocessor updates
     def _load_model(self, model_name: str) -> Any:
         """Load ML model from disk"""
         try:
@@ -129,8 +155,17 @@ class MLEnhancedConnector:
             logs: List of log entries
             
         Returns:
-            Processed and enhanced logs
+            Processed and enhanced logs (or original logs if ML disabled)
         """
+        # If ML not available, return logs unchanged
+        if not self.ml_enabled:
+            self.logger.debug("ML disabled - returning logs without enhancement")
+            return {
+                'logs': logs,
+                'ml_enhanced': False,
+                'count': len(logs)
+            }
+        
         try:
             # Extract features
             features = self._extract_features(logs)
@@ -182,7 +217,7 @@ class MLEnhancedConnector:
             
         return features
 
-    def _extract_textual_features(self, logs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _extract_textual_features(self, logs: List[Dict[str, Any]]) -> np.ndarray:
         """Extract textual features"""
         text_features = []
         
@@ -232,7 +267,7 @@ class MLEnhancedConnector:
             
             # Update anomaly history
             self.anomaly_history.append({
-                'timestamp': datetime.utcnow(),
+                'timestamp': datetime.now(timezone.utc),
                 'scores': anomaly_scores,
                 'anomalies': anomalies
             })
@@ -402,6 +437,248 @@ class MLEnhancedConnector:
                     joblib.dump(model, model_path)
             except Exception as e:
                 self.logger.error(f"Failed to save model {model_name}: {str(e)}")
+
+    # Missing method implementations (H4 fixes)
+    
+    def _enhance_logs(self, 
+                     logs: List[Dict[str, Any]], 
+                     priorities: np.ndarray, 
+                     anomalies: np.ndarray, 
+                     patterns: Dict[str, Any]) -> List[Dict[str, Any]]:
+        \"\"\"
+        Enhance logs with ML insights
+        
+        Args:
+            logs: Original log entries
+            priorities: Priority scores from classification
+            anomalies: Anomaly detection results
+            patterns: Identified patterns
+        
+        Returns:
+            Enhanced logs with ML metadata
+        \"\"\"
+        enhanced = []
+        for i, log in enumerate(logs):
+            enhanced_log = log.copy()
+            enhanced_log['priority'] = float(priorities[i]) if i < len(priorities) else 0.5
+            enhanced_log['is_anomaly'] = bool(anomalies[i]) if i < len(anomalies) else False
+            enhanced_log['ml_insights'] = {
+                'priority_score': float(priorities[i]) if i < len(priorities) else 0.5,
+                'anomaly_score': float(anomalies[i]) if i < len(anomalies) else 0.0,
+                'pattern_info': self._get_pattern_info(i, patterns)
+            }
+            enhanced.append(enhanced_log)
+        return enhanced
+    
+    def _get_pattern_info(self, index: int, patterns: Dict[str, Any]) -> Dict[str, Any]:
+        \"\"\"Get pattern information for a specific log entry\"\"\"
+        info = {}
+        if 'sequences' in patterns:
+            for seq in patterns['sequences']:
+                if seq['start_idx'] <= index < seq['start_idx'] + seq['length']:
+                    info['sequence_id'] = seq['start_idx']
+                    info['frequency'] = seq['frequency']
+                    break
+        return info
+    
+    def _get_cache_key(self, features: pd.DataFrame) -> str:
+        \"\"\"
+        Generate cache key for features
+        
+        Args:
+            features: Feature DataFrame
+        
+        Returns:
+            Hash key for caching
+        \"\"\"
+        # Create a hash from feature values
+        feature_bytes = features.values.tobytes()
+        return hashlib.md5(feature_bytes).hexdigest()
+    
+    def _extract_numerical_features(self, logs: List[Dict[str, Any]]) -> Dict[str, float]:
+        \"\"\"
+        Extract numerical features from logs
+        
+        Args:
+            logs: Log entries
+        
+        Returns:
+            Dictionary of numerical features
+        \"\"\"
+        features = {
+            'log_count': len(logs),
+            'avg_size': 0.0,
+            'max_size': 0.0,
+            'error_count': 0,
+            'warning_count': 0
+        }
+        
+        sizes = []
+        for log in logs:
+            # Calculate log entry size
+            log_str = str(log)
+            sizes.append(len(log_str))
+            
+            # Count severity levels
+            level = log.get('level', '').upper()
+            if level == 'ERROR':
+                features['error_count'] += 1
+            elif level == 'WARNING':
+                features['warning_count'] += 1
+        
+        if sizes:
+            features['avg_size'] = sum(sizes) / len(sizes)
+            features['max_size'] = max(sizes)
+        
+        return features
+    
+    def _extract_categorical_features(self, logs: List[Dict[str, Any]]) -> Dict[str, int]:
+        \"\"\"
+        Extract categorical features from logs
+        
+        Args:
+            logs: Log entries
+        
+        Returns:
+            Dictionary of categorical feature counts
+        \"\"\"
+        features = defaultdict(int)
+        
+        for log in logs:
+            # Count log levels
+            level = log.get('level', 'UNKNOWN')
+            features[f'level_{level}'] += 1
+            
+            # Count sources
+            source = log.get('source', 'UNKNOWN')
+            features[f'source_{source}'] += 1
+            
+            # Count types
+            log_type = log.get('type', 'UNKNOWN')
+            features[f'type_{log_type}'] += 1
+        
+        return dict(features)
+    
+    def _process_anomaly(self, log: Dict[str, Any]) -> Dict[str, Any]:
+        \"\"\"
+        Process anomalous log entry
+        
+        Args:
+            log: Anomalous log entry
+        
+        Returns:
+            Processed log with anomaly handling
+        \"\"\"
+        log['processing_priority'] = 'critical'
+        log['requires_review'] = True
+        log['anomaly_timestamp'] = datetime.now(timezone.utc).isoformat()
+        
+        # Log anomaly for monitoring
+        self.logger.warning(f\"Anomaly detected in log: {log.get('message', 'No message')}\")
+        
+        return log
+    
+    def _process_high_priority(self, log: Dict[str, Any]) -> Dict[str, Any]:
+        \"\"\"
+        Process high-priority log entry
+        
+        Args:
+            log: High-priority log entry
+        
+        Returns:
+            Processed log with priority handling
+        \"\"\"
+        log['processing_priority'] = 'high'
+        log['requires_attention'] = True
+        
+        return log
+    
+    def _process_normal(self, log: Dict[str, Any]) -> Dict[str, Any]:
+        \"\"\"
+        Process normal log entry
+        
+        Args:
+            log: Normal log entry
+        
+        Returns:
+            Processed log
+        \"\"\"
+        log['processing_priority'] = 'normal'
+        
+        return log
+    
+    async def _cache_cleanup(self):
+        \"\"\"Background task to clean up expired cache entries\"\"\"
+        while True:
+            try:
+                # Clean prediction cache
+                if len(self.prediction_cache) > self.config.cache_size:
+                    # Remove oldest entries (simple FIFO)
+                    keys_to_remove = list(self.prediction_cache.keys())[:len(self.prediction_cache) - self.config.cache_size]
+                    for key in keys_to_remove:
+                        del self.prediction_cache[key]
+                    
+                    self.logger.info(f\"Cleaned {len(keys_to_remove)} cache entries\")
+                
+                # Clean pattern cache
+                if len(self.pattern_cache) > self.config.cache_size:
+                    self.pattern_cache.clear()
+                    self.logger.info(\"Cleared pattern cache\")
+                
+                await asyncio.sleep(300)  # Run every 5 minutes
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f\"Cache cleanup failed: {str(e)}\")
+                await asyncio.sleep(60)
+    
+    async def _pattern_analysis(self):
+        \"\"\"Background task to analyze patterns periodically\"\"\"
+        while True:
+            try:
+                # Analyze frequent patterns
+                if self.pattern_cache:
+                    frequent_patterns = sorted(
+                        self.pattern_cache.items(),
+                        key=lambda x: x[1],
+                        reverse=True
+                    )[:10]  # Top 10 patterns
+                    
+                    self.logger.info(f\"Top patterns: {len(frequent_patterns)} unique patterns identified\")
+                    
+                    # Store analysis results
+                    for pattern_hash, frequency in frequent_patterns:
+                        if frequency > 100:  # Significant pattern threshold
+                            self.logger.info(f\"High-frequency pattern detected: {pattern_hash} ({frequency} occurrences)\")
+                
+                await asyncio.sleep(600)  # Run every 10 minutes
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f\"Pattern analysis failed: {str(e)}\")
+                await asyncio.sleep(60)
+    
+    def _update_preprocessors(self):
+        \"\"\"Update feature preprocessors with recent data\"\"\"
+        try:
+            # Update scalers if we have enough data
+            if hasattr(self, 'recent_features') and len(self.recent_features) > 100:
+                for scaler_name, scaler in self.scalers.items():
+                    try:
+                        scaler.partial_fit(self.recent_features)
+                        self.logger.info(f\"Updated {scaler_name} scaler\")
+                    except Exception as e:
+                        self.logger.error(f\"Failed to update {scaler_name} scaler: {str(e)}\")
+                
+                # Clear recent features after update
+                self.recent_features = []
+            
+            self.logger.debug(\"Preprocessors updated successfully\")
+            
+        except Exception as e:
+            self.logger.error(f\"Preprocessor update failed: {str(e)}\")
 
     async def cleanup(self):
         """Cleanup resources"""

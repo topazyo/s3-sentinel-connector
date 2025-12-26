@@ -5,8 +5,9 @@ import functools
 import logging
 import traceback
 import time
+import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 @dataclass
 class ErrorConfig:
@@ -27,7 +28,7 @@ class NonRetryableError(Exception):
     pass
 
 class ErrorHandler:
-    def __init__(self, config: Optional[ErrorConfig] = None):
+    def __init__(self, config: Optional[ErrorConfig] = None) -> None:
         """
         Initialize error handler
         
@@ -79,7 +80,7 @@ class ErrorHandler:
 
     def _track_error(self, context: str, error: Exception):
         """Track error occurrence"""
-        current_time = datetime.utcnow()
+        current_time = datetime.now(timezone.utc)
         
         if context not in self.error_counts:
             self.error_counts[context] = 0
@@ -102,7 +103,7 @@ class ErrorHandler:
             'context': context,
             'retry_count': retry_count,
             'stack_trace': stack_trace,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
         
         if retry_count > 0:

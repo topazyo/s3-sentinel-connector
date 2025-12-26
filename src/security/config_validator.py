@@ -21,7 +21,7 @@ class SecurityPolicy:
     min_encryption_bits: int = 256
 
 class ConfigurationValidator:
-    def __init__(self, policy: Optional[SecurityPolicy] = None):
+    def __init__(self, policy: Optional[SecurityPolicy] = None) -> None:
         """
         Initialize configuration validator
         
@@ -155,8 +155,106 @@ class ConfigurationValidator:
         return results
 
     def _validate_permissions(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Placeholder permissions validation to keep interface stable."""
-        return {'valid': True, 'violations': [], 'warnings': []}
+        """
+        Validate RBAC permission structure and definitions.
+        
+        Args:
+            config: Configuration containing permissions/roles
+            
+        Returns:
+            Validation results with violations and warnings
+        """
+        results = {'valid': True, 'violations': [], 'warnings': []}
+        
+        # Check for permissions configuration
+        permissions_config = config.get('permissions', {})
+        roles_config = config.get('roles', {})
+        
+        if not permissions_config and not roles_config:
+            results['warnings'].append(
+                "No permissions or roles configuration found"
+            )
+            return results
+        
+        # Validate roles structure
+        if roles_config:
+            for role_name, role_data in roles_config.items():
+                if not isinstance(role_data, dict):
+                    results['violations'].append(
+                        f"Role '{role_name}' must be a dictionary"
+                    )
+                    results['valid'] = False
+                    continue
+                
+                # Check required fields
+                if 'permissions' not in role_data:
+                    results['violations'].append(
+                        f"Role '{role_name}' missing 'permissions' field"
+                    )
+                    results['valid'] = False
+                
+                # Validate permissions list
+                perms = role_data.get('permissions', [])
+                if not isinstance(perms, list):
+                    results['violations'].append(
+                        f"Role '{role_name}' permissions must be a list"
+                    )
+                    results['valid'] = False
+                elif not perms:
+                    results['warnings'].append(
+                        f"Role '{role_name}' has no permissions defined"
+                    )
+                
+                # Check for wildcard permissions (security concern)
+                if '*' in perms or 'admin:*' in perms:
+                    results['warnings'].append(
+                        f"Role '{role_name}' has wildcard permissions - review for security"
+                    )
+        
+        # Validate permission definitions
+        if permissions_config:
+            for perm_name, perm_data in permissions_config.items():
+                if not isinstance(perm_data, dict):
+                    results['violations'].append(
+                        f"Permission '{perm_name}' must be a dictionary"
+                    )
+                    results['valid'] = False
+                    continue
+                
+                # Check for resource and action
+                if 'resource' not in perm_data:
+                    results['violations'].append(
+                        f"Permission '{perm_name}' missing 'resource' field"
+                    )
+                    results['valid'] = False
+                
+                if 'actions' not in perm_data:
+                    results['violations'].append(
+                        f"Permission '{perm_name}' missing 'actions' field"
+                    )
+                    results['valid'] = False
+                
+                # Validate actions
+                actions = perm_data.get('actions', [])
+                if not isinstance(actions, list):
+                    results['violations'].append(
+                        f"Permission '{perm_name}' actions must be a list"
+                    )
+                    results['valid'] = False
+                elif not actions:
+                    results['warnings'].append(
+                        f"Permission '{perm_name}' has no actions defined"
+                    )
+                
+                # Check for valid action types
+                valid_actions = ['read', 'write', 'delete', 'execute', 'admin']
+                for action in actions:
+                    if action not in valid_actions and action != '*':
+                        results['warnings'].append(
+                            f"Permission '{perm_name}' has non-standard action: {action}"
+                        )
+        
+        return results
 
     def _check_sensitive_data(self, config: Dict[str, Any], 
                             results: Dict[str, Any]) -> None:

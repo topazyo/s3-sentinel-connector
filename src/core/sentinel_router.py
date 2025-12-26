@@ -3,14 +3,23 @@
 import json
 import logging
 import hashlib
-from typing import Dict, List, Any, Optional, Union
-from datetime import datetime, timedelta, timezone
+import os
+from typing import Dict, List, Any, Optional
+from datetime import datetime, timezone
 from azure.monitor.ingestion import LogsIngestionClient
 from azure.identity import DefaultAzureCredential
 from azure.core.exceptions import AzureError
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
+
+try:
+    from azure.storage.blob import BlobServiceClient, ContainerClient
+    BLOB_STORAGE_AVAILABLE = True
+except ImportError:
+    BLOB_STORAGE_AVAILABLE = False
+    BlobServiceClient = None
+    ContainerClient = None
 
 @dataclass
 class TableConfig:
@@ -32,7 +41,7 @@ class SentinelRouter:
                  max_retries: int = 3,
                  batch_timeout: int = 30,
                  logs_client: Optional[Any] = None,
-                 credential: Optional[Any] = None):
+                 credential: Optional[Any] = None) -> None:
         """
         Initialize Sentinel router with configuration
         
@@ -65,6 +74,18 @@ class SentinelRouter:
             'failed_records': 0,
             'last_ingestion_time': None
         }
+        
+        # Initialize executor for sync operations
+        self._executor = ThreadPoolExecutor(max_workers=4)
+        
+        # Initialize failed batch storage from config (not environment)
+        # Container name should be passed via config, not os.getenv
+        self.failed_batches_container = 'sentinel-failed-batches'  # Can be overridden via setter
+        self._blob_client: Optional[BlobServiceClient] = None
+
+    def set_failed_batches_container(self, container_name: str) -> None:
+        """Set the failed batches container name (should come from config, not environment)"""
+        self.failed_batches_container = container_name
 
     def _initialize_azure_clients(self, credential: Optional[Any] = None):
         """Initialize Azure clients with error handling"""
@@ -233,11 +254,15 @@ class SentinelRouter:
             if table_config.compression_enabled:
                 body = self._compress_data(body)
 
-            await self.logs_client.upload(
-                rule_id=self.rule_id,
-                stream_name=self.stream_name,
-                body=body,
-                content_type="application/json"
+            # Azure SDK upload() is synchronous, wrap in executor
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                self._executor,
+                self.logs_client.upload,
+                self.rule_id,
+                self.stream_name,
+                body,
+                "application/json"
             )
 
             results['processed'] += len(batch)
@@ -306,10 +331,107 @@ class SentinelRouter:
         self.metrics['failed_records'] += len(batch)
 
     async def _store_failed_batch(self, failed_batch_info: Dict[str, Any]) -> None:
-        """Store failed batch for later retry"""
-        # Implementation would depend on your storage solution
-        # Example: Azure Blob Storage
-        pass
+        """
+        Store failed batch for later retry using Azure Blob Storage.
+        
+        Args:
+            failed_batch_info: Dictionary containing batch metadata and data
+                - batch_id: Unique identifier
+                - timestamp: Failure timestamp
+                - error: Error message
+                - retry_count: Number of retry attempts
+                - data: The actual log batch
+        
+        Note:
+            If Azure Blob Storage is unavailable, falls back to local file storage.
+        """
+        batch_id = failed_batch_info['batch_id']
+        # Use safe filename format (replace colons with hyphens for Windows)
+        timestamp = failed_batch_info['timestamp'].replace(':', '-')
+        blob_name = f"failed-batch-{batch_id}-{timestamp}.json"
+        
+        try:
+            # Serialize batch data
+            batch_json = json.dumps(
+                failed_batch_info,
+                default=lambda o: o.isoformat() if isinstance(o, datetime) else str(o),
+                indent=2
+            )
+            
+            # Try Azure Blob Storage first
+            if BLOB_STORAGE_AVAILABLE and self._blob_client:
+                await self._store_to_blob_storage(blob_name, batch_json)
+                logging.info(f"Stored failed batch {batch_id} to Azure Blob Storage")
+            else:
+                # Fallback to local file storage
+                await self._store_to_local_file(blob_name, batch_json)
+                logging.info(f"Stored failed batch {batch_id} to local storage")
+                
+        except Exception as e:
+            logging.error(f"Failed to store failed batch {batch_id}: {str(e)}")
+            # Last resort: log the batch data
+            logging.error(f"Failed batch data: {json.dumps(failed_batch_info, default=str)}")
+    
+    async def _store_to_blob_storage(self, blob_name: str, data: str) -> None:
+        """Store data to Azure Blob Storage"""
+        if not self._blob_client:
+            # Blob storage connection should be configured via constructor
+            # Do not use os.getenv here - violates architecture security rules
+            raise RuntimeError(
+                "Azure Blob Storage client not configured. "
+                "Pass blob storage connection string via constructor or disable blob storage for failed batches."
+            )
+        
+        # Get or create container
+        loop = asyncio.get_running_loop()
+        container_client = self._blob_client.get_container_client(
+            self.failed_batches_container
+        )
+        
+        # Create container if it doesn't exist
+        try:
+            await loop.run_in_executor(
+                self._executor,
+                container_client.create_container
+            )
+        except Exception as e:
+            # Container may already exist, continue
+            logging.debug(f"Container '{self.failed_batches_container}' already exists or creation failed: {e}")
+            pass
+        
+        # Upload blob
+        blob_client = container_client.get_blob_client(blob_name)
+        await loop.run_in_executor(
+            self._executor,
+            blob_client.upload_blob,
+            data,
+            True  # overwrite
+        )
+    
+    async def _store_to_local_file(self, filename: str, data: str) -> None:
+        """Store data to local file system as fallback"""
+        # Use instance attribute (set from config) instead of os.getenv
+        failed_batches_dir = getattr(self, 'failed_logs_path', './failed_batches')
+        
+        # Create directory if it doesn't exist
+        os.makedirs(failed_batches_dir, exist_ok=True)
+        
+        filepath = os.path.join(failed_batches_dir, filename)
+        
+        # Write to file asynchronously
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            self._executor,
+            self._write_file,
+            filepath,
+            data
+        )
+    
+    @staticmethod
+    def _write_file(filepath: str, data: str) -> None:
+        """Write data to file (sync helper for executor)"""
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(data)
 
     def _update_metrics(self, results: Dict[str, Any]) -> None:
         """Update internal metrics"""
@@ -317,7 +439,7 @@ class SentinelRouter:
         self.metrics['failed_records'] += results['failed']
         self.metrics['last_ingestion_time'] = datetime.now(timezone.utc)
 
-    async def get_health_status(self) -> Dict[str, Any]:
+    def get_health_status(self) -> Dict[str, Any]:
         """Get router health status"""
         return {
             'status': 'healthy' if self.metrics['failed_records'] == 0 else 'degraded',

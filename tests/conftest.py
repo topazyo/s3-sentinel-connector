@@ -71,7 +71,9 @@ def firewall_parser():
 def sentinel_router(mock_azure_credential):
     """Test Sentinel router instance"""
     logs_client = MagicMock()
-    logs_client.upload = AsyncMock(return_value=None)
+    # SentinelRouter wraps upload() in run_in_executor as a sync callable.
+    # Using AsyncMock here produces an un-awaited coroutine warning.
+    logs_client.upload = MagicMock(return_value=None)
     return SentinelRouter(
         dcr_endpoint="https://test-endpoint",
         rule_id="test-rule",

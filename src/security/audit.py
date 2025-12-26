@@ -21,7 +21,7 @@ class AuditEvent:
     correlation_id: Optional[str] = None
 
 class AuditLogger:
-    def __init__(self, log_path: str):
+    def __init__(self, log_path: str) -> None:
         """
         Initialize audit logger
         
@@ -58,7 +58,7 @@ class AuditLogger:
             self.logger.info(json.dumps(event_dict))
             
         except Exception as e:
-            logging.error(f"Failed to log audit event: {str(e)}")
+            self.logger.error(f"Failed to log audit event: {str(e)}")
             raise
 
     def _generate_event_hash(self, event_dict: Dict[str, Any]) -> str:
@@ -86,5 +86,5 @@ class AuditLogger:
             return True
             
         except Exception as e:
-            logging.error(f"Log integrity verification failed: {str(e)}")
+            self.logger.error(f"Log integrity verification failed: {str(e)}")
             return False
