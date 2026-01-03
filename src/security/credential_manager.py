@@ -1,6 +1,7 @@
 # src/security/credential_manager.py
 
 from typing import Optional, Dict, Any
+import asyncio
 import logging
 from datetime import datetime, timezone
 from azure.keyvault.secrets.aio import SecretClient
@@ -9,7 +10,12 @@ from azure.identity.aio import (
     ChainedTokenCredential,
     ManagedIdentityCredential,
 )
+from azure.core.exceptions import ServiceRequestError, ResourceNotFoundError
 from cryptography.fernet import Fernet
+
+# Phase 4 (Resilience - B2-002): Circuit breaker and retry for Key Vault
+from ..utils.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpenError
+from ..utils.error_handling import RetryableError
 
 class CredentialManager:
     def __init__(self, 
@@ -39,6 +45,15 @@ class CredentialManager:
         
         # Initialize Azure clients
         self._initialize_azure_clients()
+
+        # Phase 4 (Resilience - B2-002): Circuit breaker for Key Vault
+        circuit_config = CircuitBreakerConfig(
+            failure_threshold=5,
+            recovery_timeout=60,
+            success_threshold=2,
+            operation_timeout=10.0  # 10 second timeout for Key Vault operations
+        )
+        self._circuit_breaker = CircuitBreaker("azure-key-vault", circuit_config)
 
         # Initialize encryption placeholders (key fetched lazily from Key Vault)
         self.fernet: Optional[Fernet] = None
@@ -89,7 +104,9 @@ class CredentialManager:
                            credential_name: str, 
                            force_refresh: bool = False) -> str:
         """
-        Get credential from cache or Key Vault
+        Get credential from cache or Key Vault with circuit breaker protection
+        
+        Phase 4 (Resilience - B2-002): Added timeout, retry, and circuit breaker
         
         Args:
             credential_name: Name of the credential
@@ -97,25 +114,66 @@ class CredentialManager:
             
         Returns:
             Credential value
+            
+        Raises:
+            CircuitBreakerOpenError: Circuit breaker is open, Key Vault unavailable
+            RetryableError: Timeout or transient Key Vault error
         """
         try:
-            # Check cache first
+            # Check cache first (Phase 6: Performance optimization)
             if not force_refresh and self._is_cache_valid(credential_name):
                 cached = await self._get_from_cache(credential_name)
                 if cached is not None:
                     return cached
 
-            # Get from Key Vault
-            secret = await self.secret_client.get_secret(credential_name)
-            value = secret.value
+            # Phase 4 (B2-002): Get from Key Vault with circuit breaker + timeout
+            async def fetch_from_key_vault():
+                return await self.secret_client.get_secret(credential_name)
+            
+            try:
+                secret = await self._circuit_breaker.call(fetch_from_key_vault)
+                value = secret.value
+            except CircuitBreakerOpenError as e:
+                # Phase 4 (Resilience): Circuit open, check cache as fallback
+                self.logger.warning(
+                    f"Key Vault circuit breaker open for credential '{credential_name}': {e}"
+                )
+                cached = await self._get_from_cache(credential_name)
+                if cached is not None:
+                    self.logger.info(f"Using cached credential '{credential_name}' (circuit open)")
+                    return cached
+                # No cache available, re-raise
+                raise
+            except asyncio.TimeoutError:
+                # Phase 4 (Resilience): Timeout, mark as retryable
+                self.logger.error(
+                    f"Key Vault timeout for credential '{credential_name}' "
+                    f"(timeout: {self._circuit_breaker.config.operation_timeout}s)"
+                )
+                raise RetryableError(f"Key Vault timeout for {credential_name}")
 
-            # Update cache
+            # Update cache (Phase 6: Reduce Key Vault load)
             await self._ensure_encryption()
             self._update_cache(credential_name, value)
 
             return value
 
+        except CircuitBreakerOpenError:
+            # Already handled above, re-raise
+            raise
+        except RetryableError:
+            # Already handled above, re-raise
+            raise
+        except ResourceNotFoundError as e:
+            # Phase 4 (Resilience): Non-retryable error (credential doesn't exist)
+            self.logger.error(
+                "Credential %s not found in Key Vault: %s",
+                credential_name,
+                self._safe_error(e)
+            )
+            raise
         except Exception as e:
+            # Phase 4 (Resilience): Unexpected error, log and re-raise
             self.logger.error(
                 "Failed to get credential %s: %s",
                 credential_name,
@@ -170,7 +228,9 @@ class CredentialManager:
                               credential_name: str, 
                               new_value: Optional[str] = None) -> str:
         """
-        Rotate credential in Key Vault
+        Rotate credential in Key Vault with circuit breaker protection
+        
+        Phase 4 (Resilience - B2-002): Added timeout and circuit breaker
         
         Args:
             credential_name: Name of the credential
@@ -183,8 +243,11 @@ class CredentialManager:
             if new_value is None:
                 new_value = self._generate_secure_credential()
             
-            # Update in Key Vault
-            await self.secret_client.set_secret(credential_name, new_value)
+            # Phase 4 (B2-002): Update in Key Vault with circuit breaker + timeout
+            async def set_secret_with_circuit_breaker():
+                return await self.secret_client.set_secret(credential_name, new_value)
+            
+            await self._circuit_breaker.call(set_secret_with_circuit_breaker)
             
             # Update cache
             await self._ensure_encryption()
@@ -192,7 +255,19 @@ class CredentialManager:
             
             self.logger.info("Successfully rotated credential %s", credential_name)
             return new_value
-            
+        
+        except CircuitBreakerOpenError as e:
+            # Phase 4 (Resilience): Circuit open, credential rotation unavailable
+            self.logger.error(
+                f"Key Vault circuit breaker open during rotation of '{credential_name}': {e}"
+            )
+            raise
+        except asyncio.TimeoutError:
+            # Phase 4 (Resilience): Timeout during rotation
+            self.logger.error(
+                f"Key Vault timeout during rotation of '{credential_name}'"
+            )
+            raise RetryableError(f"Key Vault timeout rotating {credential_name}")
         except Exception as e:
             self.logger.error(
                 "Failed to rotate credential %s: %s",

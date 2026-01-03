@@ -1,17 +1,23 @@
 # src/core/sentinel_router.py
 
-import json
-import logging
-import hashlib
-import os
-from typing import Dict, List, Any, Optional
-from datetime import datetime, timezone
-from azure.monitor.ingestion import LogsIngestionClient
-from azure.identity import DefaultAzureCredential
-from azure.core.exceptions import AzureError
-from dataclasses import dataclass
-from concurrent.futures import ThreadPoolExecutor
 import asyncio
+import json
+import hashlib
+import logging
+import re
+from typing import Dict, List, Any, Optional
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+
+from azure.monitor.ingestion import LogsIngestionClient
+from azure.core.exceptions import AzureError
+from azure.identity import DefaultAzureCredential
+
+# Phase 4 (Resilience - B2-001): Circuit breaker for external service protection
+from ..utils.circuit_breaker import CircuitBreaker, CircuitBreakerConfig, CircuitBreakerOpenError
+# Phase 4 (Observability - B2-006): Correlation IDs for cross-component tracing
+from ..utils.tracing import get_correlation_id, set_correlation_id, get_correlation_context
 
 try:
     from azure.storage.blob import BlobServiceClient, ContainerClient
@@ -34,6 +40,36 @@ class TableConfig:
     batch_size: int = 1000
 
 class SentinelRouter:
+    """
+    Routes logs to Azure Sentinel with batching, retry, and observability.
+    
+    Phase 4 (Resilience - B2-001): Circuit breaker protection for Azure calls
+    Phase 4 (Observability - B1-008): Tracks dropped logs with reasons
+    Phase 4 (Observability - B2-005): Tracks failed batches with categorization
+    Phase 5 (Security - B2-011): Redacts PII from failed batch storage
+    """
+    
+    # Phase 5 (Security - B2-011/P2-SEC-03): PII redaction patterns
+    PII_PATTERNS = {
+        'email': re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'),
+        'phone': re.compile(r'\b\d{3}[-.]?\d{4}\b|\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'),  # XXX-XXXX or XXX-XXX-XXXX
+        'ssn': re.compile(r'\b\d{3}-\d{2}-\d{4}\b'),
+        'credit_card': re.compile(r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b'),
+        'ipv4': re.compile(r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'),
+        'api_key': re.compile(r'\b[a-zA-Z0-9_]{32,}\b'),  # Generic long alphanumeric strings (with underscores)
+    }
+    
+    # Field names that commonly contain PII (case-insensitive matching)
+    # Note: 'name' is too generic and causes false positives, excluded
+    PII_FIELD_NAMES = {
+        'password', 'passwd', 'pwd', 'secret', 'token', 'api_key', 'apikey',
+        'authorization', 'auth', 'bearer', 'cookie', 'session',
+        'email', 'e_mail', 'mail', 'phone', 'telephone', 'mobile',
+        'ssn', 'social_security', 'credit_card', 'creditcard', 'card_number',
+        'address', 'street', 'zipcode', 'postal_code',
+        'firstname', 'lastname', 'fullname', 'username', 'user_name'
+    }
+    
     def __init__(self,
                  dcr_endpoint: str,
                  rule_id: str,
@@ -72,11 +108,24 @@ class SentinelRouter:
             'records_processed': 0,
             'bytes_ingested': 0,
             'failed_records': 0,
+            'dropped_logs': 0,  # Phase 4 (B1-008/OBS-03): Track silently dropped logs
+            'drop_reasons': {},  # Phase 4 (B1-008): Count drops by reason
+            'failed_batch_count': 0,  # Phase 4 (B2-005/RES-05): Track failed batches
+            'failure_reasons': {},  # Phase 4 (B2-005): Count batch failures by reason
             'last_ingestion_time': None
         }
         
         # Initialize executor for sync operations
         self._executor = ThreadPoolExecutor(max_workers=4)
+        
+        # Phase 4 (Resilience - B2-001): Circuit breaker for Azure Sentinel
+        circuit_config = CircuitBreakerConfig(
+            failure_threshold=5,         # Open after 5 failures
+            recovery_timeout=60,         # Attempt recovery after 60s
+            success_threshold=2,         # Need 2 successes to close
+            operation_timeout=batch_timeout  # Use batch_timeout for operations
+        )
+        self._circuit_breaker = CircuitBreaker("azure-sentinel", circuit_config)
         
         # Initialize failed batch storage from config (not environment)
         # Container name should be passed via config, not os.getenv
@@ -172,16 +221,33 @@ class SentinelRouter:
 
         try:
             # Prepare logs for ingestion
+            initial_count = len(logs)
             prepared_logs = [
                 self._prepare_log_entry(log, table_config, data_classification)
                 for log in logs
             ]
             
-            # Filter out None values (failed preparations)
-            prepared_logs = [log for log in prepared_logs if log is not None]
+            # Phase 4 (Observability - B1-008/OBS-03): Track dropped logs
+            # Filter out None values (failed preparations) and meter them
+            valid_logs = [log for log in prepared_logs if log is not None]
+            dropped_count = initial_count - len(valid_logs)
+            
+            if dropped_count > 0:
+                # Phase 4 (B1-008): Meter dropped logs
+                self.metrics['dropped_logs'] += dropped_count
+                drop_rate = (dropped_count / initial_count) * 100
+                
+                # Phase 4 (B1-008): Warn when logs are dropped
+                logging.warning(
+                    f"Dropped {dropped_count}/{initial_count} logs ({drop_rate:.1f}%) "
+                    f"in {log_type} batch. "
+                    f"Total dropped: {self.metrics['dropped_logs']}. "
+                    f"Reasons: {self.metrics.get('drop_reasons', {})}. "
+                    f"Check log preparation errors above."
+                )
             
             # Process in batches
-            batches = self._create_batches(prepared_logs, table_config.batch_size)
+            batches = self._create_batches(valid_logs, table_config.batch_size)
             
             async with asyncio.TaskGroup() as group:
                 for batch in batches:
@@ -230,43 +296,74 @@ class SentinelRouter:
                     )
 
             # Validate required fields
-            if not all(field in transformed_log for field in table_config.required_fields):
-                logging.warning(f"Missing required fields in log entry: {log}")
+            missing_fields = [f for f in table_config.required_fields if f not in transformed_log]
+            if missing_fields:
+                # Phase 4 (Observability - B1-008/OBS-03): Track drop reason
+                drop_reason = f"missing_fields:{','.join(missing_fields)}"
+                self.metrics['drop_reasons'][drop_reason] = self.metrics['drop_reasons'].get(drop_reason, 0) + 1
+                
+                logging.warning(
+                    f"Dropping log due to missing required fields: {missing_fields}. "
+                    f"Log preview: {str(log)[:200]}..."
+                )
                 return None
 
             return transformed_log
 
         except Exception as e:
-            logging.error(f"Error preparing log entry: {str(e)}")
+            # Phase 4 (Observability - B1-008/OBS-03): Track drop reason
+            error_type = type(e).__name__
+            drop_reason = f"preparation_error:{error_type}"
+            self.metrics['drop_reasons'][drop_reason] = self.metrics['drop_reasons'].get(drop_reason, 0) + 1
+            
+            logging.error(
+                f"Dropping log due to preparation error ({error_type}): {str(e)}. "
+                f"Log preview: {str(log)[:200]}..."
+            )
             return None
 
     async def _ingest_batch(self,
                            batch: List[Dict[str, Any]],
                            table_config: TableConfig,
                            results: Dict[str, Any]) -> None:
-        """Ingest a batch of logs to Sentinel"""
+        """Ingest a batch of logs to Sentinel with circuit breaker protection
+        
+        Phase 4 (Resilience - B2-001): Wraps Azure SDK calls with circuit breaker
+        """
         try:
-            body = json.dumps(
-                batch,
-                default=lambda o: o.isoformat() if isinstance(o, datetime) else o
-            )
-            
-            if table_config.compression_enabled:
-                body = self._compress_data(body)
+            # Phase 4 (Resilience - B2-001): Wrap upload in circuit breaker
+            async def upload_with_circuit_breaker():
+                body = json.dumps(
+                    batch,
+                    default=lambda o: o.isoformat() if isinstance(o, datetime) else o
+                )
+                
+                if table_config.compression_enabled:
+                    body = self._compress_data(body)
 
-            # Azure SDK upload() is synchronous, wrap in executor
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                self._executor,
-                self.logs_client.upload,
-                self.rule_id,
-                self.stream_name,
-                body,
-                "application/json"
-            )
+                # Azure SDK upload() is synchronous, wrap in executor
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    self._executor,
+                    self.logs_client.upload,
+                    self.rule_id,
+                    self.stream_name,
+                    body,
+                    "application/json"
+                )
+            
+            # Execute through circuit breaker (Phase 4 - B2-001)
+            await self._circuit_breaker.call(upload_with_circuit_breaker)
 
             results['processed'] += len(batch)
             results['batch_count'] += 1
+            
+        except CircuitBreakerOpenError as e:
+            # Phase 4 (Resilience - B2-001): Circuit open, reject immediately
+            logging.error(f"Circuit breaker OPEN for Azure Sentinel: {str(e)}")
+            results['failed'] += len(batch)
+            # Store failed batch for later retry (Phase 4: Graceful degradation)
+            await self._handle_failed_batch(batch, e)
             
         except AzureError as e:
             logging.error(f"Azure ingestion error: {str(e)}")
@@ -312,14 +409,35 @@ class SentinelRouter:
     async def _handle_failed_batch(self, 
                                  batch: List[Dict[str, Any]], 
                                  error: Exception) -> None:
-        """Handle failed batch processing"""
+        """
+        Handle failed batch processing with comprehensive observability
+        
+        Phase 4 (B2-005/RES-05): Enhanced failed batch visibility
+        - Track batch failure count and failure reasons
+        - Categorize errors for trend analysis
+        - Log warnings when failure rate exceeds threshold
+        
+        Args:
+            batch: The failed log batch
+            error: The exception that caused the failure
+        """
         batch_id = hashlib.md5(str(batch).encode()).hexdigest()
+        
+        # Phase 4 (B2-005): Categorize error for observability
+        error_category = self._categorize_batch_error(error)
+        
+        # Phase 4 (B2-005): Track metrics
+        self.metrics['failed_batch_count'] += 1
+        self.metrics['failed_records'] += len(batch)
+        self.metrics['failure_reasons'][error_category] = \
+            self.metrics['failure_reasons'].get(error_category, 0) + 1
         
         # Store failed batch for retry
         failed_batch_info = {
             'batch_id': batch_id,
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'error': str(error),
+            'error_category': error_category,  # Phase 4 (B2-005): Structured categorization
             'retry_count': 0,
             'data': batch
         }
@@ -327,12 +445,27 @@ class SentinelRouter:
         # Could be stored in Azure Storage or other persistent storage
         await self._store_failed_batch(failed_batch_info)
         
-        logging.error(f"Batch {batch_id} failed: {str(error)}")
-        self.metrics['failed_records'] += len(batch)
+        # Phase 4 (B2-005 + B2-006): Structured logging with correlation ID
+        log_extra = {
+            'batch_id': batch_id,
+            'error_category': error_category,
+            'batch_size': len(batch),
+            'total_failed_batches': self.metrics['failed_batch_count'],
+            'correlation_id': get_correlation_id()  # Phase 4 (B2-006): Add correlation ID
+        }
+        logging.error(
+            f"Batch {batch_id} failed: {str(error)}",
+            extra=log_extra
+        )
+        
+        # Phase 4 (B2-005): Warn on high failure rates
+        self._check_failure_rate_and_warn()
 
     async def _store_failed_batch(self, failed_batch_info: Dict[str, Any]) -> None:
         """
         Store failed batch for later retry using Azure Blob Storage.
+        
+        Phase 5 (Security - B2-011/P2-SEC-03): Redacts PII before storage
         
         Args:
             failed_batch_info: Dictionary containing batch metadata and data
@@ -351,9 +484,12 @@ class SentinelRouter:
         blob_name = f"failed-batch-{batch_id}-{timestamp}.json"
         
         try:
+            # Phase 5 (B2-011): Redact PII from batch data before storage
+            redacted_batch_info = self._redact_pii_from_batch(failed_batch_info)
+            
             # Serialize batch data
             batch_json = json.dumps(
-                failed_batch_info,
+                redacted_batch_info,
                 default=lambda o: o.isoformat() if isinstance(o, datetime) else str(o),
                 indent=2
             )
@@ -371,6 +507,116 @@ class SentinelRouter:
             logging.error(f"Failed to store failed batch {batch_id}: {str(e)}")
             # Last resort: log the batch data
             logging.error(f"Failed batch data: {json.dumps(failed_batch_info, default=str)}")
+    
+    def _redact_pii_from_batch(self, batch_info: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Redact PII from failed batch before storage.
+        
+        Phase 5 (Security - B2-011/P2-SEC-03): Prevents PII exposure in failed batch logs
+        
+        Args:
+            batch_info: Failed batch info containing 'data' field with log records
+            
+        Returns:
+            Deep copy of batch_info with PII redacted from 'data' field
+        """
+        # Deep copy to avoid modifying original
+        import copy
+        redacted_info = copy.deepcopy(batch_info)
+        
+        # Redact PII from batch data
+        if 'data' in redacted_info and isinstance(redacted_info['data'], list):
+            redacted_info['data'] = [
+                self._redact_pii_from_record(record)
+                for record in redacted_info['data']
+            ]
+        
+        return redacted_info
+    
+    def _redact_pii_from_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Redact PII from a single log record.
+        
+        Phase 5 (Security - B2-011/P2-SEC-03): Multi-layered PII redaction
+        
+        Strategy:
+        1. Redact known PII field names (password, email, ssn, etc.)
+        2. Scan string values for PII patterns (regex-based)
+        
+        Args:
+            record: Single log record dictionary
+            
+        Returns:
+            Record with PII redacted (REDACTED format for visibility)
+        """
+        import copy
+        redacted_record = copy.deepcopy(record)
+        
+        for key, value in redacted_record.items():
+            # Process nested structures first (preserve structure for debugging)
+            if isinstance(value, dict):
+                # Recursively redact nested dicts
+                redacted_record[key] = self._redact_pii_from_record(value)
+            elif isinstance(value, list):
+                # Redact list elements
+                redacted_record[key] = [
+                    self._redact_pii_from_string(item) if isinstance(item, str)
+                    else self._redact_pii_from_record(item) if isinstance(item, dict)
+                    else item
+                    for item in value
+                ]
+            elif self._is_pii_field_name(key):
+                # Strategy 1: Redact by field name (only for scalar values)
+                redacted_record[key] = f"[REDACTED:{key.upper()}]"
+            elif isinstance(value, str):
+                # Strategy 2: Scan string values for PII patterns
+                redacted_record[key] = self._redact_pii_from_string(value)
+        
+        return redacted_record
+    
+    def _is_pii_field_name(self, field_name: str) -> bool:
+        """
+        Check if field name indicates PII content.
+        
+        Phase 5 (Security - B2-011): Field name-based PII detection
+        
+        Args:
+            field_name: Field name to check
+            
+        Returns:
+            True if field name matches known PII patterns
+        """
+        field_lower = field_name.lower()
+        return any(pii_name in field_lower for pii_name in self.PII_FIELD_NAMES)
+    
+    def _redact_pii_from_string(self, text: str) -> str:
+        """
+        Redact PII patterns from string value.
+        
+        Phase 5 (Security - B2-011): Pattern-based PII detection
+        
+        Args:
+            text: String to scan and redact
+            
+        Returns:
+            String with PII patterns replaced with [REDACTED:TYPE]
+        """
+        redacted_text = text
+        
+        # Apply each PII pattern
+        for pii_type, pattern in self.PII_PATTERNS.items():
+            matches = pattern.findall(redacted_text)
+            if matches:
+                # Replace each match with redaction marker
+                for match in matches:
+                    # Handle tuple matches (phone regex returns groups)
+                    match_str = match if isinstance(match, str) else ''.join(match)
+                    redacted_text = redacted_text.replace(
+                        match_str,
+                        f"[REDACTED:{pii_type.upper()}]"
+                    )
+        
+        return redacted_text
     
     async def _store_to_blob_storage(self, blob_name: str, data: str) -> None:
         """Store data to Azure Blob Storage"""
@@ -437,12 +683,216 @@ class SentinelRouter:
         """Update internal metrics"""
         self.metrics['records_processed'] += results['processed']
         self.metrics['failed_records'] += results['failed']
+        # Phase 4 (B2-005): Track batch count for failure rate calculation
+        self.metrics['batch_count'] = self.metrics.get('batch_count', 0) + results.get('batch_count', 0)
         self.metrics['last_ingestion_time'] = datetime.now(timezone.utc)
+    
+    def get_drop_metrics(self) -> Dict[str, Any]:
+        """
+        Get detailed metrics about dropped logs.
+        
+        Phase 4 (Observability - B1-008/OBS-03): Provides visibility into log dropping.
+        
+        Returns:
+            Dict containing:
+            - total_dropped: Total number of dropped logs
+            - drop_rate: Percentage of logs dropped (if records_processed > 0)
+            - drop_reasons: Breakdown of why logs were dropped
+            - recommendations: Suggested actions to reduce drops
+        """
+        total_logs = self.metrics['records_processed'] + self.metrics['dropped_logs']
+        drop_rate = (self.metrics['dropped_logs'] / total_logs * 100) if total_logs > 0 else 0.0
+        
+        recommendations = []
+        
+        # Analyze drop reasons and provide actionable recommendations
+        for reason, count in self.metrics.get('drop_reasons', {}).items():
+            if 'missing_fields' in reason:
+                recommendations.append(
+                    f"Fix missing fields: {reason.split(':', 1)[1]}. "
+                    f"Check log parser schema mapping."
+                )
+            elif 'preparation_error' in reason:
+                error_type = reason.split(':', 1)[1]
+                recommendations.append(
+                    f"Fix preparation errors ({error_type}). "
+                    f"Check data type conversions and field mappings."
+                )
+        
+        return {
+            'total_dropped': self.metrics['dropped_logs'],
+            'drop_rate_percent': round(drop_rate, 2),
+            'drop_reasons': dict(self.metrics.get('drop_reasons', {})),
+            'recommendations': recommendations,
+            'total_processed': self.metrics['records_processed'],
+            'total_failed': self.metrics['failed_records']
+        }
+
+    def _categorize_batch_error(self, error: Exception) -> str:
+        """
+        Categorize batch failure errors for observability
+        
+        Phase 4 (B2-005/RES-05): Structured error categorization for trend analysis.
+        
+        Args:
+            error: The exception that caused the batch failure
+            
+        Returns:
+            Categorized error string (e.g., "azure_error:503", "network_timeout")
+        """
+        error_type = type(error).__name__
+        
+        # Azure-specific errors
+        if isinstance(error, AzureError):
+            # Extract status code if available
+            status_code = getattr(error, 'status_code', None)
+            if status_code:
+                return f"azure_error:{status_code}"
+            return "azure_error:unknown"
+        
+        # Network/connection errors
+        if 'timeout' in error_type.lower() or 'timeout' in str(error).lower():
+            return "network_timeout"
+        
+        if 'connection' in error_type.lower():
+            return "network_connection"
+        
+        # Circuit breaker errors
+        if isinstance(error, CircuitBreakerOpenError):
+            return "circuit_breaker_open"
+        
+        # Validation errors
+        if 'validation' in error_type.lower() or isinstance(error, ValueError):
+            return "validation_error"
+        
+        # Generic categorization
+        return f"unknown_error:{error_type}"
+
+    def _check_failure_rate_and_warn(self) -> None:
+        """
+        Check batch failure rate and warn if exceeding threshold
+        
+        Phase 4 (B2-005/RES-05): Proactive warnings for high failure rates.
+        Warns every 10 failed batches to avoid log spam.
+        """
+        failed_batch_count = self.metrics['failed_batch_count']
+        
+        # Warn every 10 failed batches
+        if failed_batch_count > 0 and failed_batch_count % 10 == 0:
+            total_batches = self.metrics.get('batch_count', 0)
+            failure_rate = (failed_batch_count / total_batches * 100) if total_batches > 0 else 0.0
+            
+            # Get top failure reasons
+            failure_reasons = self.metrics['failure_reasons']
+            top_reasons = sorted(
+                failure_reasons.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:3]  # Top 3 reasons
+            
+            reasons_str = ', '.join(f"{reason}: {count}" for reason, count in top_reasons)
+            
+            logging.warning(
+                f"High batch failure rate detected: {failed_batch_count} batches failed "
+                f"({failure_rate:.1f}% of total). Top reasons: {reasons_str}. "
+                f"Check Azure Sentinel connectivity and error logs."
+            )
+
+    def get_failed_batch_metrics(self) -> Dict[str, Any]:
+        """
+        Get comprehensive failed batch metrics for observability
+        
+        Phase 4 (B2-005/RES-05): Provides visibility into batch failures.
+        Similar to get_drop_metrics() but for batch-level failures.
+        
+        Returns:
+            Dict containing:
+            - total_failed_batches: Total number of failed batches
+            - failure_rate: Percentage of batches that failed
+            - failure_reasons: Breakdown of failure categories
+            - recommendations: Suggested actions to reduce failures
+            - total_failed_records: Total records in failed batches
+        """
+        total_batches = self.metrics.get('batch_count', 0) + self.metrics['failed_batch_count']
+        failure_rate = (self.metrics['failed_batch_count'] / total_batches * 100) if total_batches > 0 else 0.0
+        
+        recommendations = []
+        
+        # Analyze failure reasons and provide actionable recommendations
+        for reason, count in self.metrics.get('failure_reasons', {}).items():
+            if 'azure_error' in reason:
+                status_code = reason.split(':', 1)[1] if ':' in reason else 'unknown'
+                recommendations.append(
+                    f"Azure API errors ({status_code}): {count} occurrences. "
+                    f"Check Azure Sentinel service health and DCR endpoint configuration."
+                )
+            elif 'network' in reason:
+                recommendations.append(
+                    f"Network issues ({reason}): {count} occurrences. "
+                    f"Check network connectivity and firewall rules."
+                )
+            elif 'circuit_breaker_open' in reason:
+                recommendations.append(
+                    f"Circuit breaker protection triggered: {count} occurrences. "
+                    f"Underlying service is experiencing issues - investigate root cause."
+                )
+            elif 'validation_error' in reason:
+                recommendations.append(
+                    f"Validation errors: {count} occurrences. "
+                    f"Check log schema compatibility with Sentinel table definitions."
+                )
+        
+        return {
+            'total_failed_batches': self.metrics['failed_batch_count'],
+            'failure_rate_percent': round(failure_rate, 2),
+            'failure_reasons': dict(self.metrics.get('failure_reasons', {})),
+            'recommendations': recommendations,
+            'total_failed_records': self.metrics['failed_records'],
+            'total_batches_processed': total_batches
+        }
 
     def get_health_status(self) -> Dict[str, Any]:
-        """Get router health status"""
+        """
+        Get router health status.
+        
+        Phase 4 (Observability - B1-008): Includes dropped log metrics in health check.
+        Phase 4 (Resilience - B2-001): Includes circuit breaker state for monitoring.
+        Phase 4 (Observability - B2-005): Includes failed batch metrics in health check.
+        """
+        # Phase 4 (B1-008): Consider drop rate in health status
+        drop_metrics = self.get_drop_metrics()
+        drop_rate = drop_metrics['drop_rate_percent']
+        
+        # Phase 4 (B2-005): Consider batch failure rate in health status
+        failed_batch_metrics = self.get_failed_batch_metrics()
+        failure_rate = failed_batch_metrics['failure_rate_percent']
+        
+        # Phase 4 (B2-001): Get circuit breaker status
+        circuit_status = self._circuit_breaker.get_metrics()
+        is_circuit_open = circuit_status['state'] == 'open'
+        
+        # Determine health status with comprehensive checks
+        if is_circuit_open:
+            status = 'degraded'  # Phase 4 (B2-001): Circuit open means degraded
+        elif failure_rate > 5.0:  # Phase 4 (B2-005): >5% batch failure rate
+            status = 'degraded'
+        elif drop_rate > 10.0:  # Phase 4 (B1-008): >10% drop rate
+            status = 'degraded'
+        elif self.metrics['failed_records'] > 0:
+            status = 'degraded'
+        else:
+            status = 'healthy'
+        
         return {
-            'status': 'healthy' if self.metrics['failed_records'] == 0 else 'degraded',
+            'status': status,
             'metrics': self.metrics,
+            'drop_metrics': drop_metrics,  # Phase 4 (B1-008): Include drop metrics
+            'failed_batch_metrics': failed_batch_metrics,  # Phase 4 (B2-005): Include batch failure metrics
+            'circuit_breaker': {  # Phase 4 (B2-001): Circuit breaker metrics
+                'state': circuit_status['state'],
+                'failure_count': circuit_status['failure_count'],
+                'total_calls': circuit_status['total_calls'],
+                'opened_at': circuit_status['opened_at']
+            },
             'last_check': datetime.now(timezone.utc).isoformat()
         }

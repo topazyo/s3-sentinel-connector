@@ -3,11 +3,12 @@
 import yaml
 import os
 import json
+import asyncio
 from typing import Dict, Any, Optional, Union
 from pathlib import Path
 from dataclasses import dataclass
-from azure.keyvault.secrets import SecretClient
-from azure.identity import DefaultAzureCredential
+from azure.keyvault.secrets.aio import SecretClient
+from azure.identity.aio import DefaultAzureCredential
 import logging
 from functools import lru_cache
 import threading
@@ -66,12 +67,14 @@ class ConfigManager:
                  vault_url: Optional[str] = None,
                  enable_hot_reload: bool = True) -> None:
         """
-        Initialize configuration manager
+        Initialize configuration manager (sync init only)
+        
+        Phase 4 (B2-008): For Key Vault secrets, use ConfigManager.create() factory method
         
         Args:
             config_path: Path to configuration files
             environment: Deployment environment (dev/staging/prod)
-            vault_url: Azure Key Vault URL for secrets
+            vault_url: Azure Key Vault URL for secrets (if provided, use create() instead)
             enable_hot_reload: Enable configuration hot reloading
         """
         self.config_path = Path(config_path)
@@ -90,12 +93,68 @@ class ConfigManager:
         # Load initial configuration
         self.reload_config()
         
-        # Initialize secrets client if vault URL provided
-        self._init_secrets_client()
+        # Phase 4 (B2-008): Secrets client initialization deferred to async factory method
+        # Do NOT call _init_secrets_client() here (it's now async)
+        self.secret_client: Optional[SecretClient] = None
         
         # Start configuration file watcher if hot reload is enabled
         if enable_hot_reload:
             self._start_config_watcher()
+    
+    @classmethod
+    async def create(cls,
+                    config_path: str,
+                    environment: str,
+                    vault_url: Optional[str] = None,
+                    enable_hot_reload: bool = True) -> 'ConfigManager':
+        """
+        Async factory method to create ConfigManager with Key Vault support
+        
+        Phase 4 (B2-008): Use this method when Key Vault secrets are needed
+        
+        Args:
+            config_path: Path to configuration files
+            environment: Deployment environment (dev/staging/prod)
+            vault_url: Azure Key Vault URL for secrets
+            enable_hot_reload: Enable configuration hot reloading
+            
+        Returns:
+            Initialized ConfigManager instance with async secret client
+            
+        Example:
+            config_manager = await ConfigManager.create(
+                'config',
+                'prod',
+                vault_url='https://myvault.vault.azure.net'
+            )
+        """
+        instance = cls.__new__(cls)
+        instance.config_path = Path(config_path)
+        instance.environment = environment
+        instance.vault_url = vault_url
+        instance.enable_hot_reload = enable_hot_reload
+        
+        # Initialize internal state
+        instance._config_cache = {}
+        instance._config_lock = threading.Lock()
+        instance._last_reload = time.time()
+        
+        # Set up logging
+        instance._setup_logging()
+        
+        # Load initial configuration
+        instance.reload_config()
+        
+        # Initialize async secrets client if vault URL provided
+        instance.secret_client = None
+        if vault_url:
+            await instance._init_secrets_client()
+        
+        # Start configuration file watcher if hot reload is enabled
+        if enable_hot_reload:
+            instance._start_config_watcher()
+        
+        return instance
 
     def _setup_logging(self) -> None:
         """Configure logging for configuration management"""
@@ -105,8 +164,13 @@ class ConfigManager:
         )
         self.logger = logging.getLogger('ConfigManager')
 
-    def _init_secrets_client(self) -> None:
-        """Initialize Azure Key Vault client"""
+    async def _init_secrets_client(self) -> None:
+        """
+        Initialize Azure Key Vault async client
+        
+        Phase 4 (B2-008): Changed to async to use azure.keyvault.secrets.aio.SecretClient
+        This fixes async/sync mismatch where get_secret() was async but client was sync
+        """
         if self.vault_url:
             try:
                 credential = DefaultAzureCredential()
@@ -114,7 +178,7 @@ class ConfigManager:
                     vault_url=self.vault_url,
                     credential=credential
                 )
-                self.logger.info("Successfully initialized Azure Key Vault client")
+                self.logger.info("Successfully initialized Azure Key Vault async client")
             except Exception as e:
                 self.logger.error(f"Failed to initialize Key Vault client: {str(e)}")
                 raise ConfigurationError("Failed to initialize secrets management") from e
@@ -306,9 +370,25 @@ class ConfigManager:
             secret_name = value.split(':', 1)[1]
             try:
                 if self.vault_url and self.secret_client:
-                    secret = self.secret_client.get_secret(secret_name)
-                    self.logger.info(f"Resolved secret '{secret_name}' from Key Vault")
-                    return secret.value
+                    # Phase 4 (B2-008): Sync method cannot await async client
+                    # Fall back to environment variable (sync operations should use env vars)
+                    # For async secret resolution, use get_secret() directly
+                    self.logger.warning(
+                        f"Sync method cannot resolve Key Vault secret '{secret_name}' directly. "
+                        "Falling back to environment variable. "
+                        "Use ConfigManager.get_secret() for async Key Vault access."
+                    )
+                    env_fallback = os.environ.get(secret_name.upper().replace('-', '_'), '')
+                    
+                    # In production, fail loudly if Key Vault was expected but sync context
+                    if self.environment == 'prod' and not env_fallback:
+                        raise ConfigurationError(
+                            f"Production environment requires Key Vault for secret '{secret_name}', "
+                            f"but _resolve_secret_reference() is a sync method. "
+                            f"Set env var {secret_name.upper().replace('-', '_')} or use get_secret() async method."
+                        )
+                    
+                    return env_fallback
                 else:
                     self.logger.warning(f"Key Vault not configured, cannot resolve '{secret_name}'")
                     # Fall back to environment variable with same name
@@ -356,7 +436,12 @@ class ConfigManager:
             
         Returns:
             Secret value
+            
+        Phase 5 (Security - B1-007/SEC-02): Requires 'read:secrets' permission
+        Raises PermissionError if current user lacks permission
         """
+        # Phase 5 (Security - B1-007): Permission check happens via decorator
+        # Applied at runtime via access_control instance
         if not self.vault_url:
             raise ConfigurationError("Key Vault URL not configured")
             

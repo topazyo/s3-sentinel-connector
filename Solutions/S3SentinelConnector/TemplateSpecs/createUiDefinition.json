@@ -1,0 +1,274 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/0.1.2-preview/CreateUIDefinition.MultiVm.json#",
+  "handler": "Microsoft.Azure.CreateUIDef",
+  "version": "0.1.2-preview",
+  "parameters": {
+    "config": {
+      "basics": {
+        "description": "<img src='https://raw.githubusercontent.com/Azure/Azure-Sentinel/master/Logos/AWS_Logo.svg' width='75px' height='75px'>\n\n**S3 to Sentinel Data Connector**\n\nDeploy this solution to ingest logs from AWS S3 buckets into Microsoft Sentinel. Supports firewall logs, VPN logs, and custom log formats with automatic schema transformation.",
+        "location": {
+          "label": "Location",
+          "toolTip": "Azure region for deploying the connector resources",
+          "resourceTypes": [
+            "Microsoft.Web/sites",
+            "Microsoft.KeyVault/vaults",
+            "Microsoft.Storage/storageAccounts"
+          ]
+        }
+      }
+    },
+    "basics": [
+      {
+        "name": "functionAppName",
+        "type": "Microsoft.Common.TextBox",
+        "label": "Function App Name",
+        "toolTip": "Unique name for the Azure Function App that will poll S3 and ingest logs to Sentinel",
+        "placeholder": "s3-sentinel-connector",
+        "constraints": {
+          "required": true,
+          "regex": "^[a-zA-Z][a-zA-Z0-9-]{1,58}[a-zA-Z0-9]$",
+          "validationMessage": "Must be 2-60 characters, start with a letter, end with a letter or number, and contain only letters, numbers, and hyphens"
+        }
+      }
+    ],
+    "steps": [
+      {
+        "name": "sentinelConfig",
+        "label": "Sentinel Configuration",
+        "elements": [
+          {
+            "name": "sentinelSection",
+            "type": "Microsoft.Common.Section",
+            "label": "Log Analytics Workspace",
+            "elements": [
+              {
+                "name": "workspaceName",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Workspace Name",
+                "toolTip": "Name of the Log Analytics workspace where Sentinel is enabled"
+              },
+              {
+                "name": "workspaceResourceGroup",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Workspace Resource Group",
+                "toolTip": "Resource group containing the Log Analytics workspace (leave empty if same as deployment resource group)",
+                "defaultValue": ""
+              },
+              {
+                "name": "workspaceInfo",
+                "type": "Microsoft.Common.InfoBox",
+                "visible": true,
+                "options": {
+                  "icon": "Info",
+                  "text": "The workspace must have Microsoft Sentinel enabled. Custom log tables will be created automatically via Data Collection Rules."
+                }
+              }
+            ]
+          },
+          {
+            "name": "logTypeSection",
+            "type": "Microsoft.Common.Section",
+            "label": "Log Type Configuration",
+            "elements": [
+              {
+                "name": "logType",
+                "type": "Microsoft.Common.DropDown",
+                "label": "Log Type",
+                "toolTip": "Type of logs being ingested from S3. This determines the custom table schema.",
+                "defaultValue": "Firewall Logs",
+                "constraints": {
+                  "required": true,
+                  "allowedValues": [
+                    {
+                      "label": "Firewall Logs",
+                      "value": "firewall"
+                    },
+                    {
+                      "label": "VPN Logs",
+                      "value": "vpn"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "batchSize",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Batch Size",
+                "toolTip": "Number of log records to process in each ingestion batch (100-10000)",
+                "defaultValue": "1000",
+                "constraints": {
+                  "required": true,
+                  "regex": "^([1-9][0-9]{2,3}|10000)$",
+                  "validationMessage": "Must be a number between 100 and 10000"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "awsConfig",
+        "label": "AWS S3 Configuration",
+        "elements": [
+          {
+            "name": "s3Section",
+            "type": "Microsoft.Common.Section",
+            "label": "S3 Bucket Settings",
+            "elements": [
+              {
+                "name": "s3BucketName",
+                "type": "Microsoft.Common.TextBox",
+                "label": "S3 Bucket Name",
+                "toolTip": "Name of the AWS S3 bucket containing the log files",
+                "placeholder": "my-logs-bucket"
+              },
+              {
+                "name": "s3Prefix",
+                "type": "Microsoft.Common.TextBox",
+                "label": "S3 Key Prefix",
+                "toolTip": "Optional prefix to filter log files (e.g., 'logs/', 'firewall/2024/')",
+                "defaultValue": "logs/"
+              },
+              {
+                "name": "awsRegion",
+                "type": "Microsoft.Common.DropDown",
+                "label": "AWS Region",
+                "toolTip": "AWS region where the S3 bucket is located",
+                "defaultValue": "US West (Oregon)",
+                "constraints": {
+                  "required": true,
+                  "allowedValues": [
+                    { "label": "US East (N. Virginia)", "value": "us-east-1" },
+                    { "label": "US East (Ohio)", "value": "us-east-2" },
+                    { "label": "US West (N. California)", "value": "us-west-1" },
+                    { "label": "US West (Oregon)", "value": "us-west-2" },
+                    { "label": "EU (Ireland)", "value": "eu-west-1" },
+                    { "label": "EU (London)", "value": "eu-west-2" },
+                    { "label": "EU (Frankfurt)", "value": "eu-central-1" },
+                    { "label": "Asia Pacific (Tokyo)", "value": "ap-northeast-1" },
+                    { "label": "Asia Pacific (Singapore)", "value": "ap-southeast-1" },
+                    { "label": "Asia Pacific (Sydney)", "value": "ap-southeast-2" }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "name": "pollingSection",
+            "type": "Microsoft.Common.Section",
+            "label": "Polling Configuration",
+            "elements": [
+              {
+                "name": "pollingIntervalMinutes",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Polling Interval (minutes)",
+                "toolTip": "How often the connector checks S3 for new log files (1-60 minutes)",
+                "defaultValue": "5",
+                "constraints": {
+                  "required": true,
+                  "regex": "^([1-9]|[1-5][0-9]|60)$",
+                  "validationMessage": "Must be a number between 1 and 60"
+                }
+              },
+              {
+                "name": "pollingInfo",
+                "type": "Microsoft.Common.InfoBox",
+                "visible": true,
+                "options": {
+                  "icon": "Info",
+                  "text": "Shorter intervals provide faster data freshness but may increase costs. Recommended: 5 minutes for security-critical logs, 15-30 minutes for compliance logs."
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "credentialsConfig",
+        "label": "AWS Credentials",
+        "elements": [
+          {
+            "name": "credentialsSection",
+            "type": "Microsoft.Common.Section",
+            "label": "AWS IAM Credentials",
+            "elements": [
+              {
+                "name": "credentialsWarning",
+                "type": "Microsoft.Common.InfoBox",
+                "visible": true,
+                "options": {
+                  "icon": "Warning",
+                  "text": "AWS credentials will be stored securely in Azure Key Vault. Ensure the IAM user has minimal permissions: s3:GetObject, s3:ListBucket on the target bucket only."
+                }
+              },
+              {
+                "name": "awsAccessKeyId",
+                "type": "Microsoft.Common.TextBox",
+                "label": "AWS Access Key ID",
+                "toolTip": "Access Key ID from your AWS IAM user with S3 read permissions"
+              },
+              {
+                "name": "awsSecretAccessKey",
+                "type": "Microsoft.Common.PasswordBox",
+                "label": {
+                  "password": "AWS Secret Access Key",
+                  "confirmPassword": "Confirm Secret Access Key"
+                },
+                "toolTip": "Secret Access Key from your AWS IAM user",
+                "constraints": {
+                  "required": true
+                },
+                "options": {
+                  "hideConfirmation": false
+                }
+              }
+            ]
+          },
+          {
+            "name": "keyVaultSection",
+            "type": "Microsoft.Common.Section",
+            "label": "Key Vault Configuration",
+            "elements": [
+              {
+                "name": "keyVaultName",
+                "type": "Microsoft.Common.TextBox",
+                "label": "Key Vault Name",
+                "toolTip": "Name for the Azure Key Vault that will store AWS credentials",
+                "placeholder": "s3sentinel-kv",
+                "constraints": {
+                  "required": true,
+                  "regex": "^[a-zA-Z][a-zA-Z0-9-]{1,22}[a-zA-Z0-9]$",
+                  "validationMessage": "Must be 3-24 characters, start with a letter, and contain only letters, numbers, and hyphens"
+                }
+              },
+              {
+                "name": "keyVaultInfo",
+                "type": "Microsoft.Common.InfoBox",
+                "visible": true,
+                "options": {
+                  "icon": "Info",
+                  "text": "The Function App's managed identity will be granted 'Get' and 'List' permissions on secrets. Credentials are encrypted at rest and never exposed in application settings."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "outputs": {
+      "functionAppName": "[basics('functionAppName')]",
+      "workspaceName": "[steps('sentinelConfig').sentinelSection.workspaceName]",
+      "workspaceResourceGroup": "[if(empty(steps('sentinelConfig').sentinelSection.workspaceResourceGroup), resourceGroup().name, steps('sentinelConfig').sentinelSection.workspaceResourceGroup)]",
+      "logType": "[steps('sentinelConfig').logTypeSection.logType]",
+      "batchSize": "[int(steps('sentinelConfig').logTypeSection.batchSize)]",
+      "s3BucketName": "[steps('awsConfig').s3Section.s3BucketName]",
+      "s3Prefix": "[steps('awsConfig').s3Section.s3Prefix]",
+      "awsRegion": "[steps('awsConfig').s3Section.awsRegion]",
+      "pollingIntervalMinutes": "[int(steps('awsConfig').pollingSection.pollingIntervalMinutes)]",
+      "awsAccessKeyId": "[steps('credentialsConfig').credentialsSection.awsAccessKeyId]",
+      "awsSecretAccessKey": "[steps('credentialsConfig').credentialsSection.awsSecretAccessKey]",
+      "keyVaultName": "[steps('credentialsConfig').keyVaultSection.keyVaultName]",
+      "location": "[location()]"
+    }
+  }
+}

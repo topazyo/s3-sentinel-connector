@@ -155,13 +155,64 @@ class FirewallLogParser(LogParser):
 class JsonLogParser(LogParser):
     """Parser for JSON-formatted logs"""
     
-    def __init__(self, schema: Optional[Dict] = None) -> None:
+    # Phase 5 (Security - B1-002/SEC-03): DoS protection limits
+    DEFAULT_MAX_SIZE_BYTES = 10 * 1024 * 1024  # 10MB
+    DEFAULT_MAX_DEPTH = 50  # Max nesting depth
+    
+    def __init__(self, 
+                 schema: Optional[Dict] = None,
+                 max_size_bytes: Optional[int] = None,
+                 max_depth: Optional[int] = None) -> None:
+        """Initialize JSON log parser with security limits.
+        
+        Args:
+            schema: Optional schema for validation
+            max_size_bytes: Maximum JSON payload size (default: 10MB)
+            max_depth: Maximum nesting depth (default: 50)
+            
+        Phase 5 (Security): Size and depth limits prevent DoS attacks
+        via deeply nested or large JSON payloads.
+        """
         self.schema = schema or {}
+        self.max_size_bytes = max_size_bytes or self.DEFAULT_MAX_SIZE_BYTES
+        self.max_depth = max_depth or self.DEFAULT_MAX_DEPTH
+        self.logger = logging.getLogger(__name__)
         
     def parse(self, log_data: bytes) -> Dict[str, Any]:
+        """Parse JSON log data with security limits.
+        
+        Args:
+            log_data: Raw JSON data in bytes
+            
+        Returns:
+            Parsed JSON dictionary
+            
+        Raises:
+            LogParserException: If payload exceeds size/depth limits or is invalid JSON
+            
+        Phase 5 (Security): Enforces size and depth limits before parsing
+        Phase 4 (Resilience): Structured error logging with context
+        """
         try:
-            # Parse JSON data
-            parsed_json = json.loads(log_data)
+            # Phase 5 (Security - B1-002): Check size limit before parsing
+            payload_size = len(log_data)
+            if payload_size > self.max_size_bytes:
+                error_msg = (
+                    f"JSON payload exceeds maximum size: "
+                    f"{payload_size} bytes > {self.max_size_bytes} bytes"
+                )
+                self.logger.warning(
+                    "JSON size limit exceeded",
+                    extra={
+                        'payload_size': payload_size,
+                        'max_size': self.max_size_bytes,
+                        'component': 'JsonLogParser'
+                    }
+                )
+                raise LogParserException(error_msg)
+            
+            # Phase 5 (Security - B1-002): Parse with depth limit
+            parsed_json = self._parse_with_depth_limit(log_data)
             
             # Apply schema mapping if provided
             if self.schema:
@@ -214,3 +265,63 @@ class JsonLogParser(LogParser):
             result[field] = value
 
         return result
+    
+    def _parse_with_depth_limit(self, log_data: bytes) -> Dict[str, Any]:
+        """Parse JSON with depth limit to prevent deeply nested payloads.
+        
+        Args:
+            log_data: Raw JSON bytes
+            
+        Returns:
+            Parsed JSON dictionary
+            
+        Raises:
+            LogParserException: If nesting depth exceeds max_depth
+            
+        Phase 5 (Security - B1-002/SEC-03): Prevents DoS via deeply nested JSON
+        """
+        # First parse without depth check
+        try:
+            parsed = json.loads(log_data)
+        except RecursionError:
+            raise LogParserException(
+                f"JSON nesting depth exceeds maximum: > {self.max_depth} levels"
+            )
+        
+        # Then validate depth
+        actual_depth = self._measure_depth(parsed)
+        if actual_depth > self.max_depth:
+            raise LogParserException(
+                f"JSON nesting depth exceeds maximum: "
+                f"{actual_depth} levels > {self.max_depth} levels"
+            )
+        
+        return parsed
+    
+    def _measure_depth(self, obj: Any, current_depth: int = 1) -> int:
+        """Recursively measure the nesting depth of a JSON structure.
+        
+        Args:
+            obj: Object to measure
+            current_depth: Current depth level
+            
+        Returns:
+            Maximum depth found
+        """
+        if not isinstance(obj, (dict, list)):
+            return current_depth
+        
+        if isinstance(obj, dict):
+            if not obj:  # Empty dict
+                return current_depth
+            return max(
+                self._measure_depth(v, current_depth + 1)
+                for v in obj.values()
+            )
+        else:  # list
+            if not obj:  # Empty list
+                return current_depth
+            return max(
+                self._measure_depth(item, current_depth + 1)
+                for item in obj
+            )

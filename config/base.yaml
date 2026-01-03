@@ -4,6 +4,23 @@ aws:
   batch_size: 1000
   max_retries: 3
   prefix: "logs/"
+  # Phase 5 (Security - B1-001): Rate limiting configuration
+  # Default: 10 req/sec respects AWS best practices (conservative)
+  # AWS S3 supports 3,500 PUT/COPY/POST/DELETE, 5,500 GET/HEAD per prefix per second
+  rate_limit: 10.0  # requests per second
+  rate_limit_burst: 20.0  # burst capacity (tokens)
+
+# Phase 5 (Security - B1-002/SEC-03): JSON parsing limits to prevent DoS
+parsing:
+  json_max_size_bytes: 10485760  # 10MB - prevents memory exhaustion attacks
+  json_max_depth: 50  # Max nesting depth - prevents stack overflow attacks
+
+# Phase 5 (Security - B1-004/SEC-04): Encryption key backup retention
+encryption:
+  key_rotation_days: 30  # Rotate keys every 30 days (PCI-DSS 3.6.4)
+  max_backup_age_days: 90  # Remove backups older than 90 days (3x rotation period)
+  # Rationale: Retains 3 previous key generations for emergency recovery
+  # while limiting attack surface and preventing disk bloat
 
 sentinel:
   batch_size: 1000

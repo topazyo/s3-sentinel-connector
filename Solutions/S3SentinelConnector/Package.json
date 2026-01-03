@@ -1,0 +1,94 @@
+{
+  "Name": "S3SentinelConnector",
+  "DisplayName": "AWS S3 to Sentinel Data Connector",
+  "Description": "This solution deploys a high-performance data connector that ingests logs from AWS S3 buckets into Microsoft Sentinel. Features include multi-format log parsing (firewall, VPN, custom), automatic schema transformation, secure credential management via Azure Key Vault, ML-powered anomaly detection, and comprehensive monitoring with Prometheus metrics.",
+  "Publisher": "Microsoft",
+  "TemplateSpec": true,
+  "TemplateSpecName": "S3SentinelConnector",
+  "UiDefinitionUri": "https://raw.githubusercontent.com/Azure/Azure-Sentinel/master/Solutions/S3SentinelConnector/TemplateSpecs/createUiDefinition.json",
+  "TemplateUri": "https://raw.githubusercontent.com/Azure/Azure-Sentinel/master/Solutions/S3SentinelConnector/TemplateSpecs/mainTemplate.json",
+  "FirstPublishDate": "2025-12-26",
+  "LastPublishDate": "2025-12-26",
+  "contentTypes": [
+    "DataConnector"
+  ],
+  "categories": {
+    "domains": [
+      "Security - Threat Protection",
+      "Security - Cloud Security"
+    ],
+    "verticals": []
+  },
+  "support": {
+    "name": "Microsoft Corporation",
+    "email": "support@microsoft.com",
+    "link": "https://support.microsoft.com/"
+  },
+  "metadata": {
+    "version": "1.0.0",
+    "releaseNotes": [
+      {
+        "version": "1.0.0",
+        "title": "Initial Release",
+        "notes": "Initial release of the S3 to Sentinel Data Connector with support for firewall and VPN log formats, Key Vault integration, DCR-based ingestion, and comprehensive monitoring."
+      }
+    ]
+  },
+  "dependencies": {
+    "operator": "AND",
+    "criteria": [
+      {
+        "kind": "LogAnalyticsWorkspace"
+      }
+    ]
+  },
+  "artifacts": [
+    {
+      "type": "DataConnector",
+      "name": "S3SentinelConnector_FunctionApp",
+      "source": {
+        "kind": "LocalPath",
+        "path": "Data Connectors/"
+      }
+    }
+  ],
+  "providers": [
+    "Amazon Web Services"
+  ],
+  "dataTypes": [
+    "Custom_Firewall_CL",
+    "Custom_VPN_CL"
+  ],
+  "permissions": {
+    "resourceProvider": [
+      {
+        "provider": "Microsoft.OperationalInsights/workspaces",
+        "permissionsDisplayText": "Log Analytics Workspace read/write access required to create custom log tables",
+        "providerDisplayName": "Workspace",
+        "scope": "Workspace",
+        "requiredPermissions": {
+          "read": true,
+          "write": true,
+          "delete": false
+        }
+      },
+      {
+        "provider": "Microsoft.KeyVault/vaults",
+        "permissionsDisplayText": "Key Vault contributor access required to store AWS credentials",
+        "providerDisplayName": "Key Vault",
+        "scope": "ResourceGroup",
+        "requiredPermissions": {
+          "read": true,
+          "write": true,
+          "delete": false
+        }
+      }
+    ],
+    "customs": [
+      {
+        "name": "AWS S3 Permissions",
+        "description": "AWS IAM user with s3:GetObject and s3:ListBucket permissions on the target S3 bucket"
+      }
+    ]
+  }
+}

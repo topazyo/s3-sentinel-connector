@@ -11,6 +11,7 @@ from .rotation_manager import RotationManager
 from .encryption import EncryptionManager
 from .audit import AuditLogger
 from .access_control import AccessControl
+from .permission_enforcer import PermissionEnforcer
 
 __all__ = [
     'SecurityManager',
@@ -19,22 +20,27 @@ __all__ = [
     'RotationManager',
     'EncryptionManager',
     'AuditLogger',
-    'AccessControl'
+    'AccessControl',
+    'PermissionEnforcer'
 ]
 
 class SecurityManager:
     """Central security management class"""
     
-    def __init__(self, config_path: str) -> None:
+    def __init__(self, config_path: str | Dict[str, Any]) -> None:
         """
         Initialize security components (sync init only - JWT from env)
         
         For Key Vault JWT secrets, use SecurityManager.create() instead.
         
         Args:
-            config_path: Path to security configuration
+            config_path: Path to security configuration file OR dict with config (for testing)
         """
-        self.config = self._load_config(config_path)
+        # Support both config dict (for tests) and path (for production)
+        if isinstance(config_path, dict):
+            self.config = config_path
+        else:
+            self.config = self._load_config(config_path)
         self.logger = logging.getLogger(__name__)
         
         # Initialize security components (will use env vars for secrets)
@@ -129,15 +135,38 @@ class SecurityManager:
                         "JWT secret is required for access control initialization."
                     )
             else:
-                # Plain text (insecure but allowed)
+                # Phase 5 (Security - B1-005/SEC-06): Block plain-text JWT in production
+                import os
+                app_env = os.environ.get('APP_ENV', 'development').lower()
+                
+                if app_env == 'production':
+                    raise RuntimeError(
+                        "Plain-text JWT secrets are not allowed in production. "
+                        "Use 'env:JWT_SECRET' or 'keyvault:jwt-secret' format. "
+                        "Current format is insecure and exposes credentials in config files."
+                    )
+                
+                # Plain text allowed in dev/test (with warning)
                 self.logger.warning(
                     "JWT secret is stored in plain text in config file. "
+                    "This is insecure and only allowed in non-production environments. "
                     "Use 'keyvault:jwt-secret' or 'env:JWT_SECRET' instead."
                 )
                 resolved_jwt_secret = jwt_secret_ref
             
             self.access_control = AccessControl(
                 jwt_secret=resolved_jwt_secret
+            )
+            
+            # Phase 5 (Security - B1-007/SEC-02): Initialize permission enforcer
+            self.permission_enforcer = PermissionEnforcer(self.access_control)
+            
+            # Apply permission checks to sensitive operations
+            self.permission_enforcer.enforce_permissions(
+                config_manager=None,  # Will be applied when ConfigManager is created
+                encryption_manager=self.encryption_manager,
+                s3_handler=None,  # Will be applied when S3Handler is created
+                credential_manager=self.credential_manager
             )
             
             self.logger.info("Security components initialized successfully")
@@ -210,6 +239,17 @@ class SecurityManager:
             
             self.access_control = AccessControl(
                 jwt_secret=resolved_jwt_secret
+            )
+            
+            # Phase 5 (Security - B1-007/SEC-02): Initialize permission enforcer
+            self.permission_enforcer = PermissionEnforcer(self.access_control)
+            
+            # Apply permission checks to sensitive operations
+            self.permission_enforcer.enforce_permissions(
+                config_manager=None,  # Will be applied when ConfigManager is created
+                encryption_manager=self.encryption_manager,
+                s3_handler=None,  # Will be applied when S3Handler is created
+                credential_manager=self.credential_manager
             )
             
             self.logger.info("Security components initialized successfully (async)")

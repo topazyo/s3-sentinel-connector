@@ -1,0 +1,42 @@
+{
+  "Name": "S3SentinelConnector",
+  "Author": "S3 Sentinel Connector Team",
+  "Logo": "<img src='https://raw.githubusercontent.com/Azure/Azure-Sentinel/master/Logos/AWS_Logo.svg' width='75px' height='75px'>",
+  "Description": "The S3 to Sentinel Data Connector enables secure, high-performance ingestion of logs from AWS S3 buckets into Microsoft Sentinel. It supports multiple log formats (firewall, VPN, custom) with automatic schema transformation, ML-powered anomaly detection, and comprehensive monitoring.",
+  "Metadata Version": "2.0",
+  "Publisher": "Microsoft",
+  "Support": {
+    "Name": "Microsoft Corporation",
+    "Email": "support@microsoft.com",
+    "Link": "https://support.microsoft.com/"
+  },
+  "Categories": {
+    "Domains": [
+      "Security - Threat Protection",
+      "Security - Cloud Security"
+    ],
+    "Verticals": []
+  },
+  "Providers": [
+    "Amazon Web Services",
+    "AWS S3"
+  ],
+  "FirstPublishDate": "2025-12-26",
+  "LastPublishDate": "2025-12-26",
+  "Version": "1.0.0",
+  "ContentId": "S3SentinelConnector",
+  "ContentKind": "Solution",
+  "DisplayName": "AWS S3 to Sentinel Connector",
+  "OfferId": "S3SentinelConnector",
+  "PlanId": "S3SentinelConnector",
+  "Source": {
+    "Name": "S3 Sentinel Connector",
+    "Kind": "Solution"
+  },
+  "PackageMetadata": {
+    "Publisher": "Microsoft",
+    "PublisherDisplayName": "Microsoft",
+    "Version": "1.0.0",
+    "ContentSchemaVersion": "3.0.0"
+  }
+}

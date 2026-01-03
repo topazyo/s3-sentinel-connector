@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceName": {
+      "value": "REPLACE_WITH_YOUR_WORKSPACE_NAME"
+    },
+    "workspaceResourceGroup": {
+      "value": "REPLACE_WITH_YOUR_WORKSPACE_RG"
+    },
+    "functionAppName": {
+      "value": "s3sentinel-func-001"
+    },
+    "storageAccountName": {
+      "value": "s3sentinelstore001"
+    },
+    "keyVaultName": {
+      "value": "s3sentinel-kv-001"
+    },
+    "awsAccessKeyId": {
+      "value": "REPLACE_WITH_AWS_ACCESS_KEY_ID"
+    },
+    "awsSecretAccessKey": {
+      "value": "REPLACE_WITH_AWS_SECRET_ACCESS_KEY"
+    },
+    "awsRegion": {
+      "value": "us-west-2"
+    },
+    "s3BucketName": {
+      "value": "REPLACE_WITH_YOUR_S3_BUCKET"
+    },
+    "s3Prefix": {
+      "value": "logs/"
+    },
+    "pollingIntervalMinutes": {
+      "value": 5
+    },
+    "batchSize": {
+      "value": 1000
+    },
+    "logType": {
+      "value": "firewall"
+    }
+  }
+}

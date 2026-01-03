@@ -246,59 +246,92 @@ class PipelineMonitor:
         self.logger.info(f"Component {component} health status: {'healthy' if status else 'unhealthy'}")
 
     async def _health_check_loop(self) -> None:
-        """Periodic health check loop"""
-        while True:
-            try:
-                # Check S3 connectivity
-                s3_health = await self._check_s3_health()
-                await self.update_component_health('s3', s3_health['status'], s3_health)
-                
-                # Check Sentinel connectivity
-                sentinel_health = await self._check_sentinel_health()
-                await self.update_component_health('sentinel', 
-                                                 sentinel_health['status'], 
-                                                 sentinel_health)
-                
-                # Check pipeline lag
-                lag = await self._check_pipeline_lag()
-                await self.record_metric('pipeline_lag', lag)
-                
-                await asyncio.sleep(60)  # Run every minute
-                
-            except Exception as e:
-                self.logger.error(f"Health check loop error: {str(e)}")
-                await asyncio.sleep(5)  # Short sleep on error
+        """Periodic health check loop
+        
+        Phase 4 (B2-004/RES-04): Graceful shutdown via CancelledError handling
+        """
+        try:
+            while True:
+                try:
+                    # Check S3 connectivity
+                    s3_health = await self._check_s3_health()
+                    await self.update_component_health('s3', s3_health['status'], s3_health)
+                    
+                    # Check Sentinel connectivity
+                    sentinel_health = await self._check_sentinel_health()
+                    await self.update_component_health('sentinel', 
+                                                     sentinel_health['status'], 
+                                                     sentinel_health)
+                    
+                    # Check pipeline lag
+                    lag = await self._check_pipeline_lag()
+                    await self.record_metric('pipeline_lag', lag)
+                    
+                    await asyncio.sleep(60)  # Run every minute
+                    
+                except asyncio.CancelledError:
+                    # Graceful shutdown requested
+                    self.logger.info("Health check loop cancelled, shutting down gracefully")
+                    raise  # Re-raise to properly propagate cancellation
+                except Exception as e:
+                    self.logger.error(f"Health check loop error: {str(e)}")
+                    await asyncio.sleep(5)  # Short sleep on error
+        except asyncio.CancelledError:
+            self.logger.info("Health check loop shutdown complete")
+            raise  # Ensure cancellation propagates
 
     async def _alert_check_loop(self) -> None:
-        """Check for alert conditions"""
-        while True:
-            try:
-                for alert_config in self.alert_configs:
-                    await self._check_alert_condition(alert_config)
-                
-                await asyncio.sleep(30)  # Run every 30 seconds
-                
-            except Exception as e:
-                self.logger.error(f"Alert check loop error: {str(e)}")
-                await asyncio.sleep(5)
+        """Check for alert conditions
+        
+        Phase 4 (B2-004/RES-04): Graceful shutdown via CancelledError handling
+        """
+        try:
+            while True:
+                try:
+                    for alert_config in self.alert_configs:
+                        await self._check_alert_condition(alert_config)
+                    
+                    await asyncio.sleep(30)  # Run every 30 seconds
+                    
+                except asyncio.CancelledError:
+                    # Graceful shutdown requested
+                    self.logger.info("Alert check loop cancelled, shutting down gracefully")
+                    raise  # Re-raise to properly propagate cancellation
+                except Exception as e:
+                    self.logger.error(f"Alert check loop error: {str(e)}")
+                    await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            self.logger.info("Alert check loop shutdown complete")
+            raise  # Ensure cancellation propagates
 
     async def _metrics_export_loop(self) -> None:
-        """Export metrics to external systems"""
-        while True:
-            try:
-                metrics = self._collect_current_metrics()
-                
-                # Export to Azure Monitor
-                await self._export_to_azure_monitor(metrics)
-                
-                # Export to Prometheus (metrics already exposed via collectors)
-                self._export_to_prometheus(metrics)
-                
-                await asyncio.sleep(60)  # Export every minute
-                
-            except Exception as e:
-                self.logger.error(f"Metrics export error: {str(e)}")
-                await asyncio.sleep(5)
+        """Export metrics to external systems
+        
+        Phase 4 (B2-004/RES-04): Graceful shutdown via CancelledError handling
+        """
+        try:
+            while True:
+                try:
+                    metrics = self._collect_current_metrics()
+                    
+                    # Export to Azure Monitor
+                    await self._export_to_azure_monitor(metrics)
+                    
+                    # Export to Prometheus (metrics already exposed via collectors)
+                    self._export_to_prometheus(metrics)
+                    
+                    await asyncio.sleep(60)  # Export every minute
+                    
+                except asyncio.CancelledError:
+                    # Graceful shutdown requested
+                    self.logger.info("Metrics export loop cancelled, shutting down gracefully")
+                    raise  # Re-raise to properly propagate cancellation
+                except Exception as e:
+                    self.logger.error(f"Metrics export error: {str(e)}")
+                    await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            self.logger.info("Metrics export loop shutdown complete")
+            raise  # Ensure cancellation propagates
 
     async def _check_alert_condition(self, alert_config: AlertConfig) -> None:
         """Check if alert condition is met and trigger alert if needed"""

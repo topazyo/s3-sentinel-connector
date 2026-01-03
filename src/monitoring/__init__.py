@@ -32,6 +32,10 @@ class MonitoringManager:
         
         Args:
             config: Monitoring configuration
+            
+        Note:
+            Phase 4 (B2-003/RES-03): __init__ is sync, task creation moved to async start()
+            Call await monitoring_manager.start() from async context after initialization
         """
         self.config = config
         self.logger = logging.getLogger(__name__)
@@ -42,9 +46,9 @@ class MonitoringManager:
         # Initialize monitoring components
         self._initialize_components()
         
-        # Start monitoring tasks
+        # Task creation deferred to async start() method (Phase 4 - B2-003)
         self.tasks = []
-        self._start_monitoring()
+        self._monitoring_started = False
 
     def _initialize_components(self):
         """Initialize monitoring components"""
@@ -74,12 +78,66 @@ class MonitoringManager:
             raise
 
     def _start_monitoring(self):
-        """Start monitoring tasks"""
+        """
+        Start monitoring tasks (internal - called by async start())
+        
+        Phase 4 (B2-003/RES-03): Creates asyncio tasks, must be called from async context
+        """
         self.tasks.extend([
             asyncio.create_task(self.pipeline_monitor._health_check_loop()),
             asyncio.create_task(self.pipeline_monitor._metrics_export_loop()),
             asyncio.create_task(self.alert_manager._alert_check_loop())
         ])
+    
+    async def start(self) -> None:
+        """
+        Start monitoring tasks (must be called from async context)
+        
+        Phase 4 (B2-003/RES-03): Async initialization pattern to avoid
+        RuntimeError: no running event loop during __init__
+        
+        Usage:
+            manager = MonitoringManager(config)  # Sync initialization
+            await manager.start()  # Async task creation
+        
+        Raises:
+            RuntimeError: If start() called multiple times
+        """
+        if self._monitoring_started:
+            self.logger.warning("Monitoring tasks already started, ignoring duplicate start() call")
+            return
+        
+        self._start_monitoring()
+        self._monitoring_started = True
+        self.logger.info("Monitoring tasks started successfully")
+    
+    async def stop(self) -> None:
+        """
+        Stop monitoring tasks gracefully
+        
+        Phase 4 (B2-003/RES-03): Graceful shutdown of background tasks
+        
+        Usage:
+            await manager.stop()  # Cancel all monitoring tasks
+        """
+        if not self._monitoring_started:
+            self.logger.warning("Monitoring tasks not started, nothing to stop")
+            return
+        
+        self.logger.info("Stopping monitoring tasks...")
+        
+        # Cancel all tasks
+        for task in self.tasks:
+            if not task.done():
+                task.cancel()
+        
+        # Wait for all tasks to complete cancellation
+        if self.tasks:
+            await asyncio.gather(*self.tasks, return_exceptions=True)
+        
+        self.tasks = []
+        self._monitoring_started = False
+        self.logger.info("Monitoring tasks stopped successfully")
 
     async def record_metric(self, 
                           component: str,

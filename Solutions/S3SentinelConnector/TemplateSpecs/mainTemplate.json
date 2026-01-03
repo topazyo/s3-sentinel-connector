@@ -1,0 +1,468 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "s3-sentinel-connector",
+      "version": "1.0.0"
+    },
+    "description": "Deploys the S3 to Sentinel Data Connector infrastructure including Function App, Key Vault, Storage Account, and Data Collection resources."
+  },
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace where logs will be ingested"
+      }
+    },
+    "workspaceResourceGroup": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().name]",
+      "metadata": {
+        "description": "Resource group containing the Log Analytics workspace"
+      }
+    },
+    "functionAppName": {
+      "type": "string",
+      "metadata": {
+        "description": "Unique name for the Function App that will poll S3 and ingest logs"
+      },
+      "minLength": 2,
+      "maxLength": 60
+    },
+    "keyVaultName": {
+      "type": "string",
+      "metadata": {
+        "description": "Key Vault name for storing AWS credentials securely"
+      },
+      "minLength": 3,
+      "maxLength": 24
+    },
+    "awsAccessKeyId": {
+      "type": "securestring",
+      "metadata": {
+        "description": "AWS Access Key ID with S3 read permissions"
+      }
+    },
+    "awsSecretAccessKey": {
+      "type": "securestring",
+      "metadata": {
+        "description": "AWS Secret Access Key"
+      }
+    },
+    "awsRegion": {
+      "type": "string",
+      "defaultValue": "us-west-2",
+      "metadata": {
+        "description": "AWS region where the S3 bucket is located"
+      },
+      "allowedValues": [
+        "us-east-1",
+        "us-east-2",
+        "us-west-1",
+        "us-west-2",
+        "eu-west-1",
+        "eu-west-2",
+        "eu-central-1",
+        "ap-northeast-1",
+        "ap-southeast-1",
+        "ap-southeast-2"
+      ]
+    },
+    "s3BucketName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the S3 bucket containing the logs"
+      }
+    },
+    "s3Prefix": {
+      "type": "string",
+      "defaultValue": "logs/",
+      "metadata": {
+        "description": "S3 key prefix to filter log files (e.g., 'logs/', 'firewall/')"
+      }
+    },
+    "pollingIntervalMinutes": {
+      "type": "int",
+      "defaultValue": 5,
+      "minValue": 1,
+      "maxValue": 60,
+      "metadata": {
+        "description": "Interval in minutes between S3 polling operations"
+      }
+    },
+    "batchSize": {
+      "type": "int",
+      "defaultValue": 1000,
+      "minValue": 100,
+      "maxValue": 10000,
+      "metadata": {
+        "description": "Number of log records to process in each batch"
+      }
+    },
+    "logType": {
+      "type": "string",
+      "defaultValue": "firewall",
+      "allowedValues": [
+        "firewall",
+        "vpn"
+      ],
+      "metadata": {
+        "description": "Type of logs being ingested (determines table schema)"
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for resource deployment"
+      }
+    }
+  },
+  "variables": {
+    "functionAppPlanName": "[concat(parameters('functionAppName'), '-plan')]",
+    "applicationInsightsName": "[concat(parameters('functionAppName'), '-insights')]",
+    "dcrName": "[concat(parameters('functionAppName'), '-dcr')]",
+    "dceName": "[concat(parameters('functionAppName'), '-dce')]",
+    "customTableName": "[if(equals(parameters('logType'), 'firewall'), 'Custom_Firewall_CL', 'Custom_VPN_CL')]",
+    "streamName": "Microsoft-Event",
+    "workspaceResourceId": "[resourceId(parameters('workspaceResourceGroup'), 'Microsoft.OperationalInsights/workspaces', parameters('workspaceName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2021-09-01",
+      "name": "s3stfuncsa",
+      "tags": {
+        "displayName": "Function App Storage"
+      },
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "supportsHttpsTrafficOnly": true,
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false,
+        "networkAcls": {
+          "bypass": "AzureServices",
+          "defaultAction": "Allow"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[variables('applicationInsightsName')]",
+      "location": "[parameters('location')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "WorkspaceResourceId": "[variables('workspaceResourceId')]",
+        "publicNetworkAccessForIngestion": "Enabled",
+        "publicNetworkAccessForQuery": "Enabled"
+      }
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2022-03-01",
+      "name": "[variables('functionAppPlanName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Y1",
+        "tier": "Dynamic",
+        "size": "Y1",
+        "family": "Y"
+      },
+      "kind": "functionapp",
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2022-03-01",
+      "name": "[parameters('functionAppName')]",
+      "location": "[parameters('location')]",
+      "kind": "functionapp,linux",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', variables('functionAppPlanName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountNameSafe'))]",
+        "[resourceId('Microsoft.Insights/components', variables('applicationInsightsName'))]"
+      ],
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('functionAppPlanName'))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "linuxFxVersion": "PYTHON|3.11",
+          "pythonVersion": "3.11",
+          "ftpsState": "Disabled",
+          "minTlsVersion": "1.2",
+          "appSettings": [
+            {
+              "name": "AzureWebJobsStorage",
+              "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountNameSafe'), ';EndpointSuffix=', environment().suffixes.storage, ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountNameSafe')), '2021-09-01').keys[0].value)]"
+            },
+            {
+              "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+              "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', variables('storageAccountNameSafe'), ';EndpointSuffix=', environment().suffixes.storage, ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageAccountNameSafe')), '2021-09-01').keys[0].value)]"
+            },
+            {
+              "name": "WEBSITE_CONTENTSHARE",
+              "value": "[toLower(parameters('functionAppName'))]"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~4"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "python"
+            },
+            {
+              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('applicationInsightsName')), '2020-02-02').InstrumentationKey]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', variables('applicationInsightsName')), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "KEY_VAULT_URL",
+              "value": "[concat('https://', parameters('keyVaultName'), '.vault.azure.net')]"
+            },
+            {
+              "name": "AWS_REGION",
+              "value": "[parameters('awsRegion')]"
+            },
+            {
+              "name": "S3_BUCKET_NAME",
+              "value": "[parameters('s3BucketName')]"
+            },
+            {
+              "name": "S3_PREFIX",
+              "value": "[parameters('s3Prefix')]"
+            },
+            {
+              "name": "POLLING_INTERVAL_MINUTES",
+              "value": "[string(parameters('pollingIntervalMinutes'))]"
+            },
+            {
+              "name": "BATCH_SIZE",
+              "value": "[string(parameters('batchSize'))]"
+            },
+            {
+              "name": "LOG_TYPE",
+              "value": "[parameters('logType')]"
+            },
+            {
+              "name": "DCR_ENDPOINT",
+              "value": "[reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('dceName')), '2021-04-01').logsIngestion.endpoint]"
+            },
+            {
+              "name": "DCR_RULE_ID",
+              "value": "[reference(resourceId('Microsoft.Insights/dataCollectionRules', variables('dcrName')), '2021-04-01').immutableId]"
+            },
+            {
+              "name": "DCR_STREAM_NAME",
+              "value": "[variables('streamName')]"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2022-07-01",
+      "name": "[parameters('keyVaultName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', parameters('functionAppName'))]"
+      ],
+      "properties": {
+        "tenantId": "[subscription().tenantId]",
+        "sku": {
+          "name": "standard",
+          "family": "A"
+        },
+        "enableRbacAuthorization": false,
+        "enableSoftDelete": true,
+        "softDeleteRetentionInDays": 90,
+        "enabledForDeployment": false,
+        "enabledForDiskEncryption": false,
+        "enabledForTemplateDeployment": false,
+        "accessPolicies": [
+          {
+            "tenantId": "[subscription().tenantId]",
+            "objectId": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2022-03-01', 'Full').identity.principalId]",
+            "permissions": {
+              "secrets": [
+                "get",
+                "list"
+              ]
+            }
+          }
+        ],
+        "networkAcls": {
+          "bypass": "AzureServices",
+          "defaultAction": "Allow"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2022-07-01",
+      "name": "[concat(parameters('keyVaultName'), '/aws-access-key-id')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+      ],
+      "properties": {
+        "value": "[parameters('awsAccessKeyId')]",
+        "attributes": {
+          "enabled": true
+        }
+      }
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2022-07-01",
+      "name": "[concat(parameters('keyVaultName'), '/aws-secret-access-key')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+      ],
+      "properties": {
+        "value": "[parameters('awsSecretAccessKey')]",
+        "attributes": {
+          "enabled": true
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Insights/dataCollectionEndpoints",
+      "apiVersion": "2021-04-01",
+      "name": "[variables('dceName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "networkAcls": {
+          "publicNetworkAccess": "Enabled"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Insights/dataCollectionRules",
+      "apiVersion": "2021-04-01",
+      "name": "[variables('dcrName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('dceName'))]"
+      ],
+      "properties": {
+        "dataCollectionEndpointId": "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('dceName'))]",
+        "streamDeclarations": {
+          "[variables('streamName')]": {
+            "columns": [
+              {
+                "name": "TimeGenerated",
+                "type": "datetime"
+              },
+              {
+                "name": "SourceIP",
+                "type": "string"
+              },
+              {
+                "name": "DestinationIP",
+                "type": "string"
+              },
+              {
+                "name": "Action",
+                "type": "string"
+              },
+              {
+                "name": "Protocol",
+                "type": "string"
+              },
+              {
+                "name": "SourcePort",
+                "type": "int"
+              },
+              {
+                "name": "DestinationPort",
+                "type": "int"
+              },
+              {
+                "name": "BytesTransferred",
+                "type": "long"
+              },
+              {
+                "name": "RuleName",
+                "type": "string"
+              },
+              {
+                "name": "DataClassification",
+                "type": "string"
+              },
+              {
+                "name": "SchemaVersion",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "destinations": {
+          "logAnalytics": [
+            {
+              "workspaceResourceId": "[variables('workspaceResourceId')]",
+              "name": "sentinel-workspace"
+            }
+          ]
+        },
+        "dataFlows": [
+          {
+            "streams": [
+              "Microsoft-Event"
+            ],
+            "destinations": [
+              "sentinel-workspace"
+            ],
+            "transformKql": "source",
+            "outputStream": "Microsoft-Event"
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "functionAppUrl": {
+      "type": "string",
+      "value": "[concat('https://', reference(resourceId('Microsoft.Web/sites', parameters('functionAppName'))).defaultHostName)]"
+    },
+    "functionAppPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2022-03-01', 'Full').identity.principalId]"
+    },
+    "keyVaultUri": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))).vaultUri]"
+    },
+    "dcrEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('dceName'))).logsIngestion.endpoint]"
+    },
+    "dcrImmutableId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Insights/dataCollectionRules', variables('dcrName')), '2021-04-01').immutableId]"
+    },
+    "customTableName": {
+      "type": "string",
+      "value": "[variables('customTableName')]"
+    },
+    "applicationInsightsInstrumentationKey": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Insights/components', variables('applicationInsightsName'))).InstrumentationKey]"
+    }
+  }
+}

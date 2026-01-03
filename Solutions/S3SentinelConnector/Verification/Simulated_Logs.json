@@ -1,0 +1,185 @@
+{
+  "description": "Synthetic log events matching the S3 Sentinel Connector schemas for firewall and VPN logs",
+  "logTableName": "Custom_Firewall_CL",
+  "schemaVersion": "1.0",
+  "sampleEvents": [
+    {
+      "TimeGenerated": "2025-12-26T10:15:30.000Z",
+      "SourceIP": "192.168.1.100",
+      "DestinationIP": "10.0.0.50",
+      "Action": "allow",
+      "Protocol": "TCP",
+      "SourcePort": 52431,
+      "DestinationPort": 443,
+      "BytesTransferred": 15234,
+      "RuleName": "Allow-HTTPS-Outbound",
+      "DataClassification": "standard",
+      "SchemaVersion": "1.0"
+    },
+    {
+      "TimeGenerated": "2025-12-26T10:16:45.000Z",
+      "SourceIP": "203.0.113.42",
+      "DestinationIP": "192.168.1.10",
+      "Action": "deny",
+      "Protocol": "TCP",
+      "SourcePort": 45123,
+      "DestinationPort": 22,
+      "BytesTransferred": 0,
+      "RuleName": "Block-External-SSH",
+      "DataClassification": "standard",
+      "SchemaVersion": "1.0"
+    },
+    {
+      "TimeGenerated": "2025-12-26T10:17:15.000Z",
+      "SourceIP": "10.0.0.25",
+      "DestinationIP": "8.8.8.8",
+      "Action": "allow",
+      "Protocol": "UDP",
+      "SourcePort": 53421,
+      "DestinationPort": 53,
+      "BytesTransferred": 128,
+      "RuleName": "Allow-DNS-Outbound",
+      "DataClassification": "standard",
+      "SchemaVersion": "1.0"
+    },
+    {
+      "TimeGenerated": "2025-12-26T10:18:00.000Z",
+      "SourceIP": "198.51.100.89",
+      "DestinationIP": "192.168.1.5",
+      "Action": "drop",
+      "Protocol": "TCP",
+      "SourcePort": 12345,
+      "DestinationPort": 3389,
+      "BytesTransferred": 0,
+      "RuleName": "Block-External-RDP",
+      "DataClassification": "standard",
+      "SchemaVersion": "1.0"
+    },
+    {
+      "TimeGenerated": "2025-12-26T10:19:30.000Z",
+      "SourceIP": "172.16.0.100",
+      "DestinationIP": "192.168.1.200",
+      "Action": "allow",
+      "Protocol": "TCP",
+      "SourcePort": 58234,
+      "DestinationPort": 80,
+      "BytesTransferred": 2048576,
+      "RuleName": "Allow-Internal-HTTP",
+      "DataClassification": "standard",
+      "SchemaVersion": "1.0"
+    }
+  ],
+  "vpnSampleEvents": [
+    {
+      "TimeGenerated": "2025-12-26T10:15:30.000Z",
+      "UserPrincipalName": "john.doe@contoso.com",
+      "SessionID": "vpn-session-001-abc123",
+      "ClientIP": "203.0.113.100",
+      "BytesIn": 1048576,
+      "BytesOut": 524288,
+      "ConnectionDuration": 3600,
+      "DataClassification": "standard",
+      "SchemaVersion": "2.1"
+    },
+    {
+      "TimeGenerated": "2025-12-26T10:20:00.000Z",
+      "UserPrincipalName": "jane.smith@contoso.com",
+      "SessionID": "vpn-session-002-def456",
+      "ClientIP": "198.51.100.200",
+      "BytesIn": 2097152,
+      "BytesOut": 1048576,
+      "ConnectionDuration": 7200,
+      "DataClassification": "standard",
+      "SchemaVersion": "2.1"
+    },
+    {
+      "TimeGenerated": "2025-12-26T10:25:00.000Z",
+      "UserPrincipalName": "admin@contoso.com",
+      "SessionID": "vpn-session-003-ghi789",
+      "ClientIP": "192.0.2.50",
+      "BytesIn": 5242880,
+      "BytesOut": 10485760,
+      "ConnectionDuration": 14400,
+      "DataClassification": "standard",
+      "SchemaVersion": "2.1"
+    }
+  ],
+  "schemaValidation": {
+    "firewall": {
+      "required_fields": [
+        "TimeGenerated",
+        "SourceIP",
+        "DestinationIP",
+        "Action"
+      ],
+      "field_types": {
+        "TimeGenerated": "datetime (ISO8601)",
+        "SourceIP": "string (IPv4/IPv6)",
+        "DestinationIP": "string (IPv4/IPv6)",
+        "Action": "string (allow|deny|drop|reset)",
+        "Protocol": "string",
+        "SourcePort": "int (0-65535)",
+        "DestinationPort": "int (0-65535)",
+        "BytesTransferred": "long",
+        "RuleName": "string",
+        "DataClassification": "string",
+        "SchemaVersion": "string"
+      }
+    },
+    "vpn": {
+      "required_fields": [
+        "TimeGenerated",
+        "UserPrincipalName",
+        "SessionID",
+        "ClientIP"
+      ],
+      "field_types": {
+        "TimeGenerated": "datetime (ISO8601)",
+        "UserPrincipalName": "string (email format)",
+        "SessionID": "string",
+        "ClientIP": "string (IPv4/IPv6)",
+        "BytesIn": "long",
+        "BytesOut": "long",
+        "ConnectionDuration": "int (seconds)",
+        "DataClassification": "string",
+        "SchemaVersion": "string"
+      }
+    }
+  },
+  "edgeCases": [
+    {
+      "description": "IPv6 address format",
+      "TimeGenerated": "2025-12-26T10:30:00.000Z",
+      "SourceIP": "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+      "DestinationIP": "2001:0db8:85a3::8a2e:0370:7335",
+      "Action": "allow",
+      "Protocol": "TCP",
+      "SourcePort": 443,
+      "DestinationPort": 443,
+      "BytesTransferred": 1024
+    },
+    {
+      "description": "Maximum bytes value",
+      "TimeGenerated": "2025-12-26T10:31:00.000Z",
+      "SourceIP": "10.0.0.1",
+      "DestinationIP": "10.0.0.2",
+      "Action": "allow",
+      "Protocol": "TCP",
+      "SourcePort": 80,
+      "DestinationPort": 80,
+      "BytesTransferred": 9223372036854775807
+    },
+    {
+      "description": "Special characters in rule name",
+      "TimeGenerated": "2025-12-26T10:32:00.000Z",
+      "SourceIP": "172.16.0.1",
+      "DestinationIP": "172.16.0.2",
+      "Action": "deny",
+      "Protocol": "UDP",
+      "SourcePort": 53,
+      "DestinationPort": 53,
+      "BytesTransferred": 0,
+      "RuleName": "Block-DNS_External (Test & Dev)"
+    }
+  ]
+}

@@ -1,6 +1,15 @@
 # config/prod.yaml
 aws:
   bucket_name: "prod-logs-bucket"
+  # Phase 5 (Security - B1-001): Production rate limiting (higher throughput)
+  # Increase to 50 req/sec for production workloads (still conservative)
+  rate_limit: 50.0  # requests per second
+  rate_limit_burst: 100.0  # burst capacity
+
+# Phase 5 (Security - B1-002): Production JSON limits (more generous for large logs)
+parsing:
+  json_max_size_bytes: 20971520  # 20MB - accommodate larger production payloads
+  json_max_depth: 75  # Slightly higher for complex production logs
   
 sentinel:
   workspace_id: "prod-workspace"

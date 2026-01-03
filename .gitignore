@@ -43,6 +43,8 @@ config/local.yaml
 # Audit and agent files (do not commit local audit notes)
 VIBE_AUDIT_ROADMAP.md
 AGENTS.md
+audit/
+implementation/
 
 # Test coverage
 .coverage

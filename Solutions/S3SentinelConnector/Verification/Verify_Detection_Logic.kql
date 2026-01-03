@@ -1,0 +1,149 @@
+// VERIFICATION QUERY: S3 Sentinel Connector Detection Logic
+// Usage: Paste this into Log Analytics > Logs and run it
+// This validates that your connector is working and data matches expected schema
+
+// ===== SIMULATED DATA TABLE (For testing without live data) =====
+let SimulatedFirewallData = datatable(
+    TimeGenerated: datetime,
+    SourceIP: string,
+    DestinationIP: string,
+    Action: string,
+    Protocol: string,
+    SourcePort: int,
+    DestinationPort: int,
+    BytesTransferred: long,
+    RuleName: string
+)[
+    // Legitimate internal traffic
+    datetime(2025-12-26T10:00:00Z), "192.168.1.100", "10.0.0.50", "allow", "TCP", 52431, 443, 15234, "Allow-HTTPS-Outbound",
+    datetime(2025-12-26T10:05:00Z), "10.0.0.25", "8.8.8.8", "allow", "UDP", 53421, 53, 128, "Allow-DNS-Outbound",
+    datetime(2025-12-26T10:10:00Z), "172.16.0.100", "192.168.1.200", "allow", "TCP", 58234, 80, 2048576, "Allow-Internal-HTTP",
+    
+    // Blocked external threats
+    datetime(2025-12-26T10:15:00Z), "203.0.113.42", "192.168.1.10", "deny", "TCP", 45123, 22, 0, "Block-External-SSH",
+    datetime(2025-12-26T10:16:00Z), "198.51.100.89", "192.168.1.5", "drop", "TCP", 12345, 3389, 0, "Block-External-RDP",
+    datetime(2025-12-26T10:17:00Z), "203.0.113.42", "192.168.1.10", "deny", "TCP", 45124, 22, 0, "Block-External-SSH",
+    datetime(2025-12-26T10:18:00Z), "203.0.113.42", "192.168.1.10", "deny", "TCP", 45125, 22, 0, "Block-External-SSH",
+    
+    // Potential data exfiltration
+    datetime(2025-12-26T10:20:00Z), "192.168.1.50", "8.8.4.4", "allow", "TCP", 443, 443, 104857600, "Allow-HTTPS-Outbound",
+    datetime(2025-12-26T10:21:00Z), "192.168.1.50", "1.1.1.1", "allow", "TCP", 443, 443, 209715200, "Allow-HTTPS-Outbound"
+];
+
+// ===== DETECTION 1: External SSH/RDP Brute Force Attempts =====
+print "=== DETECTION 1: External Access Attempts ===";
+SimulatedFirewallData
+| where TimeGenerated > ago(24h)
+| where Action in ("deny", "drop")
+| where DestinationPort in (22, 3389, 23, 5900)  // SSH, RDP, Telnet, VNC
+| summarize 
+    AttemptCount = count(),
+    TargetHosts = dcount(DestinationIP),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by SourceIP
+| where AttemptCount >= 3  // Alert threshold
+| extend AlertSeverity = case(
+    AttemptCount >= 10, "High",
+    AttemptCount >= 5, "Medium",
+    "Low"
+)
+| project SourceIP, AttemptCount, TargetHosts, FirstSeen, LastSeen, AlertSeverity
+| order by AttemptCount desc;
+
+// Expected Result:
+// SourceIP: 203.0.113.42 | AttemptCount: 3 | AlertSeverity: Low
+
+// ===== DETECTION 2: Potential Data Exfiltration =====
+print "=== DETECTION 2: Large Outbound Transfers ===";
+SimulatedFirewallData
+| where TimeGenerated > ago(24h)
+| where Action == "allow"
+| where DestinationPort in (443, 80, 21, 22)
+| summarize 
+    TotalBytes = sum(BytesTransferred),
+    TransferCount = count(),
+    DestinationIPs = make_set(DestinationIP)
+    by SourceIP, bin(TimeGenerated, 1h)
+| where TotalBytes > 100000000  // > 100 MB threshold
+| extend TotalMB = round(TotalBytes / 1048576.0, 2)
+| project TimeGenerated, SourceIP, TotalMB, TransferCount, DestinationIPs
+| order by TotalMB desc;
+
+// Expected Result:
+// SourceIP: 192.168.1.50 | TotalMB: 300 | Flagged for high outbound volume
+
+// ===== DETECTION 3: Denied Traffic Summary =====
+print "=== DETECTION 3: Firewall Block Summary ===";
+SimulatedFirewallData
+| where TimeGenerated > ago(24h)
+| where Action in ("deny", "drop")
+| summarize 
+    BlockCount = count(),
+    UniqueSourceIPs = dcount(SourceIP),
+    TopTargetPorts = make_set(DestinationPort)
+    by RuleName
+| order by BlockCount desc;
+
+// Expected Results:
+// RuleName: Block-External-SSH | BlockCount: 3
+// RuleName: Block-External-RDP | BlockCount: 1
+
+// ===== SCHEMA VALIDATION =====
+print "=== SCHEMA VALIDATION ===";
+SimulatedFirewallData
+| take 1
+| project-keep *
+| evaluate bag_unpack(pack_all())
+| getschema;
+
+// ===== INTEGRATION CHECK =====
+// Once you've tested with simulated data, swap this query for your real table:
+// 
+// Custom_Firewall_CL
+// | where TimeGenerated > ago(24h)
+// | where Action in ("deny", "drop")
+// | where DestinationPort in (22, 3389, 23, 5900)
+// | summarize AttemptCount = count() by SourceIP
+// | where AttemptCount >= 3
+
+// ===== VPN LOG VALIDATION =====
+print "=== VPN LOG SCHEMA CHECK ===";
+let SimulatedVPNData = datatable(
+    TimeGenerated: datetime,
+    UserPrincipalName: string,
+    SessionID: string,
+    ClientIP: string,
+    BytesIn: long,
+    BytesOut: long,
+    ConnectionDuration: int
+)[
+    datetime(2025-12-26T10:15:30Z), "john.doe@contoso.com", "vpn-001", "203.0.113.100", 1048576, 524288, 3600,
+    datetime(2025-12-26T10:20:00Z), "jane.smith@contoso.com", "vpn-002", "198.51.100.200", 2097152, 1048576, 7200,
+    datetime(2025-12-26T10:25:00Z), "admin@contoso.com", "vpn-003", "192.0.2.50", 5242880, 10485760, 14400
+];
+
+SimulatedVPNData
+| summarize 
+    TotalSessions = count(),
+    TotalBytesIn = sum(BytesIn),
+    TotalBytesOut = sum(BytesOut),
+    AvgDuration = avg(ConnectionDuration)
+| extend 
+    TotalInMB = round(TotalBytesIn / 1048576.0, 2),
+    TotalOutMB = round(TotalBytesOut / 1048576.0, 2),
+    AvgDurationHours = round(AvgDuration / 3600.0, 2);
+
+// ===== EXPECTED RESULTS VERIFICATION =====
+// 
+// Detection 1 (External Access):
+// - SourceIP: 203.0.113.42, AttemptCount: 3, AlertSeverity: Low
+// 
+// Detection 2 (Data Exfiltration):
+// - SourceIP: 192.168.1.50, TotalMB: ~300
+// 
+// Detection 3 (Block Summary):
+// - Block-External-SSH: 3 blocks
+// - Block-External-RDP: 1 block
+//
+// If you see results matching above, your detection logic is working ✓

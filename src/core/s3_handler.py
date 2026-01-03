@@ -12,6 +12,8 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from ..utils.error_handling import RetryableError
+from ..utils.rate_limiter import RateLimiter
+from ..utils.tracing import get_correlation_id, set_correlation_id, get_correlation_context
 from .log_parser import LogParser
 
 class S3Handler:
@@ -21,7 +23,9 @@ class S3Handler:
                  region: str,
                  max_retries: int = 3,
                  batch_size: int = 10,
-                 max_threads: int = 5) -> None:
+                 max_threads: int = 5,
+                 rate_limiter: Optional[RateLimiter] = None,
+                 rate_limit: Optional[float] = None) -> None:
         """
         Initialize S3 handler with configuration and monitoring
         
@@ -32,6 +36,13 @@ class S3Handler:
             max_retries: Maximum number of retry attempts
             batch_size: Number of files to process in each batch
             max_threads: Maximum number of concurrent threads
+            rate_limiter: Optional RateLimiter instance. If None and rate_limit
+                         is specified, creates a new RateLimiter.
+            rate_limit: Maximum requests per second (default: 10.0 req/sec).
+                       Only used if rate_limiter is None.
+        
+        **Phase 5 (Security - B1-001):** Rate limiting prevents abuse and
+        respects AWS service limits. Default 10 req/sec is conservative.
         """
         self.setup_logging()
         self.max_retries = max_retries
@@ -41,9 +52,25 @@ class S3Handler:
             'files_processed': 0,
             'bytes_processed': 0,
             'errors': 0,
-            'processing_time': 0
+            'processing_time': 0,
+            'rate_limited': 0  # Track how many operations were rate limited
         }
         self._executor = ThreadPoolExecutor(max_workers=self.max_threads)
+        
+        # Initialize rate limiter (Phase 5: Security - B1-001)
+        if rate_limiter is not None:
+            self.rate_limiter = rate_limiter
+        elif rate_limit is not None:
+            self.rate_limiter = RateLimiter(rate=rate_limit)
+        else:
+            # Default: 10 req/sec (conservative, respects AWS best practices)
+            self.rate_limiter = RateLimiter(rate=10.0)
+        
+        logging.info(
+            "S3Handler initialized with rate limiting: %s", 
+            self.rate_limiter,
+            extra=get_correlation_context()  # Phase 4 (B2-006): Add correlation ID
+        )
         
         try:
             self.s3_client = boto3.client(
@@ -57,7 +84,10 @@ class S3Handler:
                     read_timeout=30
                 )
             )
-            logging.info(f"Successfully initialized S3 client in region {region}")
+            logging.info(
+                f"Successfully initialized S3 client in region {region}",
+                extra=get_correlation_context()  # Phase 4 (B2-006): Add correlation ID
+            )
         except Exception as e:
             logging.critical(f"Failed to initialize S3 client: {str(e)}")
             raise
@@ -77,7 +107,12 @@ class S3Handler:
         last_processed_time: Optional[datetime] = None,
         max_keys: int = 1000,
     ) -> List[Dict[str, Any]]:
-        """Synchronously list objects in S3 with filtering and pagination."""
+        """
+        Synchronously list objects in S3 with filtering and pagination.
+        
+        **Phase 5 (Security - B1-001):** Rate limited to prevent abuse.
+        Default: 10 req/sec. Configurable via rate_limit parameter in __init__.
+        """
         if last_processed_time and last_processed_time.tzinfo is None:
             last_processed_time = last_processed_time.replace(tzinfo=timezone.utc)
         return self._list_objects_sync(bucket, prefix, last_processed_time, max_keys)
@@ -89,16 +124,68 @@ class S3Handler:
         last_processed_time: Optional[datetime] = None,
         max_keys: int = 1000,
     ) -> List[Dict[str, Any]]:
-        """Async wrapper for listing objects using a thread executor."""
+        """Async wrapper for listing objects with async rate limiting."""
+        # Phase 5 (Security - B1-001): Apply async rate limiting
+        if not await self.rate_limiter.acquire_async(timeout=30.0):
+            error_msg = f"Rate limit timeout (async) for list_objects: {bucket}/{prefix}"
+            logging.error(
+                error_msg,
+                extra=get_correlation_context()  # Phase 4 (B2-006): Add correlation ID
+            )
+            self.metrics['rate_limited'] += 1
+            raise RetryableError(error_msg)
+        
         loop = asyncio.get_running_loop()
+        # Note: Actual S3 call uses sync client (no async rate limit needed internally)
         return await loop.run_in_executor(
             self._executor,
-            self.list_objects,
+            self._list_objects_internal,
             bucket,
             prefix,
             last_processed_time,
             max_keys,
         )
+    
+    def _list_objects_internal(
+        self, bucket: str, prefix: str, last_processed_time: Optional[datetime], max_keys: int
+    ) -> List[Dict[str, Any]]:
+        """Internal list objects without rate limiting (rate limit applied in caller)."""
+        objects: List[Dict[str, Any]] = []
+        paginator = self.s3_client.get_paginator('list_objects_v2')
+
+        try:
+            page_iterator = paginator.paginate(
+                Bucket=bucket,
+                Prefix=prefix,
+                PaginationConfig={'MaxItems': max_keys}
+            )
+
+            for page in page_iterator:
+                if 'Contents' not in page:
+                    continue
+
+                for obj in page['Contents']:
+                    if last_processed_time and obj['LastModified'] <= last_processed_time:
+                        continue
+
+                    if obj['Size'] == 0 or not self._is_valid_file(obj['Key']):
+                        continue
+
+                    objects.append({
+                        'Key': obj['Key'],
+                        'Size': obj['Size'],
+                        'LastModified': obj['LastModified'],
+                        'ETag': obj['ETag'],
+                        'StorageClass': obj.get('StorageClass', 'STANDARD')
+                    })
+
+            logging.info("Found %s new objects in %s/%s", len(objects), bucket, prefix)
+            return objects
+
+        except ClientError as e:
+            self._handle_aws_error(e)
+        except Exception:
+            raise
 
     def _is_valid_file(self, key: str) -> bool:
         """Check if file should be processed based on extension and patterns"""
@@ -159,7 +246,11 @@ class S3Handler:
                     results['processed'] += 1
                     results['successful'].append({'key': key, 'size': obj.get('Size', len(content))})
                 except Exception as e:
-                    logging.error("Failed to process %s: %s", key, str(e))
+                    logging.error(
+                        "Failed to process %s: %s", 
+                        key, str(e),
+                        extra=get_correlation_context()  # Phase 4 (B2-006): Add correlation ID
+                    )
                     results['failed'] += 1
                     results['errors'].append({'key': key, 'error': str(e)})
 
@@ -264,7 +355,17 @@ class S3Handler:
         return self._download_object_sync(bucket, key)
 
     def _download_object_sync(self, bucket: str, key: str) -> bytes:
-        """Synchronous download with optional decompression."""
+        """Synchronous download with optional decompression and rate limiting."""
+        # Phase 5 (Security - B1-001): Apply rate limiting before S3 API call
+        if not self.rate_limiter.acquire(timeout=30.0):
+            error_msg = f"Rate limit timeout acquiring token for download: {key}"
+            logging.error(
+                error_msg,
+                extra=get_correlation_context()  # Phase 4 (B2-006): Add correlation ID
+            )
+            self.metrics['rate_limited'] += 1
+            raise RetryableError(error_msg)
+        
         try:
             response = self.s3_client.get_object(Bucket=bucket, Key=key)
             body = response['Body'].read()
@@ -280,6 +381,21 @@ class S3Handler:
             raise
 
     def _list_objects_sync(self, bucket: str, prefix: str, last_processed_time: Optional[datetime], max_keys: int) -> List[Dict[str, Any]]:
+        """Synchronous list objects with rate limiting."""
+        # Phase 5 (Security - B1-001): Apply rate limiting before S3 API call
+        if not self.rate_limiter.acquire(timeout=30.0):
+            error_msg = f"Rate limit timeout acquiring token for list_objects: {bucket}/{prefix}"
+            logging.error(
+                error_msg,
+                extra=get_correlation_context()  # Phase 4 (B2-006): Add correlation ID
+            )
+            self.metrics['rate_limited'] += 1
+            raise RetryableError(error_msg)
+        
+        return self._list_objects_internal(bucket, prefix, last_processed_time, max_keys)
+    
+    def _list_objects_internal(self, bucket: str, prefix: str, last_processed_time: Optional[datetime], max_keys: int) -> List[Dict[str, Any]]:
+        """Internal list objects implementation (no rate limiting - applied by caller)."""
         objects: List[Dict[str, Any]] = []
         paginator = self.s3_client.get_paginator('list_objects_v2')
 
@@ -359,7 +475,11 @@ class S3Handler:
         """Handle AWS errors with retryable mapping."""
         error_code = error.response['Error'].get('Code')
         error_msg = self._get_error_message(error_code)
-        logging.error("S3 operation failed: %s", error_msg)
+        logging.error(
+            "S3 operation failed: %s", 
+            error_msg,
+            extra=get_correlation_context()  # Phase 4 (B2-006): Add correlation ID
+        )
 
         if error_code in ['SlowDown', 'InternalError', '503']:
             raise RetryableError(error_msg)
