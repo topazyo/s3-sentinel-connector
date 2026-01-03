@@ -335,9 +335,70 @@ class CredentialManager:
                 raise
             return key
 
+    def _redact_path_from_error(self, msg: str) -> str:
+        """
+        Redact file paths from error messages to prevent information disclosure.
+        
+        Phase 2 (Consistency - B2-010): Redacts system file paths from error messages
+        
+        Examples:
+            "FileNotFoundError: /etc/app/keys/secret.key not found" 
+            → "FileNotFoundError: [PATH]/secret.key not found"
+            
+            "PermissionError: C:\\Users\\app\\config.yaml access denied"
+            → "PermissionError: [PATH]/config.yaml access denied"
+        
+        Args:
+            msg: Error message potentially containing file paths
+            
+        Returns:
+            Error message with file paths redacted to [PATH]/filename
+        """
+        import re
+        
+        # Pattern 1: Unix absolute paths (/path/to/file.ext)
+        # Requires file with extension to avoid matching URLs
+        # Negative lookbehind ensures not part of URL (://path)
+        msg = re.sub(
+            r'(?<![:/])(/[\w\-./]+/[\w\-.]+\.[\w]+)',
+            r'[PATH]/\1',
+            msg
+        )
+        # Extract just filename from the replacement (fix the pattern)
+        msg = re.sub(
+            r'\[PATH\](/[\w\-./]+/)([\w\-.]+)',
+            r'[PATH]/\2',
+            msg
+        )
+        
+        # Pattern 2: Windows absolute paths (C:\path\to\file.ext)
+        msg = re.sub(
+            r'([A-Z]:\\[\w\\\-./]+\\([\w\-.]+))',
+            r'[PATH]/\2',
+            msg
+        )
+        
+        # Pattern 3: Windows paths with forward slashes (C:/path/to/file.ext)
+        msg = re.sub(
+            r'([A-Z]:/([\w/\-./]+/)([\w\-.]+))',
+            r'[PATH]/\3',
+            msg
+        )
+        
+        return msg
+
     def _safe_error(self, err: Exception) -> str:
-        """Redact potentially sensitive content from error messages."""
+        """
+        Redact potentially sensitive content from error messages.
+        
+        Phase 2 (Consistency - B2-010): Redacts file paths to prevent information disclosure
+        """
         msg = str(err)
+        
+        # Phase 2 (B2-010): Redact file paths from error messages
+        msg = self._redact_path_from_error(msg)
+        
+        # Truncate if too long
         if len(msg) > 500:
             return msg[:500] + "..."
         return msg

@@ -377,7 +377,14 @@ class PipelineMonitor:
         return float(entry.get('value', 0.0))
 
     async def _send_teams_alert(self, alert_data: Dict[str, Any]) -> None:
-        """Send alert to Microsoft Teams"""
+        """Send alert to Microsoft Teams with retry logic
+        
+        Phase 4 (B2-007/P2-RES-01): Add retry with exponential backoff and timeout
+        - 3 retry attempts with exponential backoff (1s, 2s, 4s)
+        - 5s timeout per attempt (same as Slack for consistency)
+        - Retry on 5xx errors and network failures
+        - Skip retry on 4xx errors (client errors, not transient)
+        """
         teams_webhook = self._get_teams_webhook()
         if not teams_webhook:
             self.logger.warning("Teams webhook not configured; skipping alert for %s", alert_data.get('name'))
@@ -399,17 +406,72 @@ class PipelineMonitor:
             }]
         }
         
-        async with aiohttp.ClientSession() as session:
-            post_ctx = session.post(teams_webhook, json=message)
-            if asyncio.iscoroutine(post_ctx):
-                post_ctx = await post_ctx
+        # Phase 4 (B2-007): Retry with exponential backoff
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Phase 4 (B2-007): Add timeout (5s per attempt)
+                async with aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=self.health_timeout)
+                ) as session:
+                    post_ctx = session.post(teams_webhook, json=message)
+                    if asyncio.iscoroutine(post_ctx):
+                        post_ctx = await post_ctx
 
-            async with post_ctx as response:
-                if response.status != 200:
-                    self.logger.error(f"Failed to send Teams alert: {await response.text()}")
+                    async with post_ctx as response:
+                        if response.status == 200:
+                            # Success - exit retry loop
+                            self.logger.debug(f"Teams alert sent successfully for {alert_data.get('name')}")
+                            return
+                        elif response.status >= 500:
+                            # Server error - retry
+                            error_text = await response.text()
+                            self.logger.warning(
+                                f"Teams alert attempt {attempt + 1}/{max_retries} failed "
+                                f"(status {response.status}): {error_text}"
+                            )
+                            if attempt < max_retries - 1:
+                                # Exponential backoff: 1s, 2s, 4s
+                                backoff_delay = 1 * (2 ** attempt)
+                                await asyncio.sleep(backoff_delay)
+                                continue  # Retry
+                        else:
+                            # Client error (4xx) - don't retry
+                            error_text = await response.text()
+                            self.logger.error(
+                                f"Teams alert failed with client error "
+                                f"(status {response.status}): {error_text}"
+                            )
+                            return
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                # Network error or timeout - retry
+                self.logger.warning(
+                    f"Teams alert attempt {attempt + 1}/{max_retries} failed: {str(e)}"
+                )
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 1s, 2s, 4s
+                    backoff_delay = 1 * (2 ** attempt)
+                    await asyncio.sleep(backoff_delay)
+                    continue
+            except Exception as e:
+                # Unexpected error - log and abort
+                self.logger.error(f"Teams alert failed with unexpected error: {str(e)}")
+                return
+        
+        # All retries exhausted
+        self.logger.error(
+            f"Teams alert failed after {max_retries} attempts for {alert_data.get('name')}"
+        )
 
     async def _send_slack_alert(self, alert_data: Dict[str, Any]) -> None:
-        """Send alert to Slack if webhook configured."""
+        """Send alert to Slack with retry logic
+        
+        Phase 4 (B2-007/P2-RES-01): Add retry with exponential backoff
+        - 3 retry attempts with exponential backoff (1s, 2s, 4s)
+        - 5s timeout per attempt (already present)
+        - Retry on 5xx errors and network failures
+        - Skip retry on 4xx errors (client errors, not transient)
+        """
         webhook = self.slack_webhook
         if not webhook:
             self.logger.warning("Slack webhook not configured; skipping alert for %s", alert_data.get('name'))
@@ -421,14 +483,61 @@ class PipelineMonitor:
                     f"Env: {alert_data['environment']}\n{alert_data['description']}"
         }
 
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.health_timeout)) as session:
-            post_ctx = session.post(webhook, json=payload)
-            if asyncio.iscoroutine(post_ctx):
-                post_ctx = await post_ctx
+        # Phase 4 (B2-007): Retry with exponential backoff
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                async with aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=self.health_timeout)
+                ) as session:
+                    post_ctx = session.post(webhook, json=payload)
+                    if asyncio.iscoroutine(post_ctx):
+                        post_ctx = await post_ctx
 
-            async with post_ctx as resp:
-                if resp.status >= 400:
-                    self.logger.error("Failed to send Slack alert (%s): %s", alert_data.get('name'), await resp.text())
+                    async with post_ctx as resp:
+                        if resp.status == 200:
+                            # Success - exit retry loop
+                            self.logger.debug(f"Slack alert sent successfully for {alert_data.get('name')}")
+                            return
+                        elif resp.status >= 500:
+                            # Server error - retry
+                            error_text = await resp.text()
+                            self.logger.warning(
+                                f"Slack alert attempt {attempt + 1}/{max_retries} failed "
+                                f"(status {resp.status}): {error_text}"
+                            )
+                            if attempt < max_retries - 1:
+                                # Exponential backoff: 1s, 2s, 4s
+                                backoff_delay = 1 * (2 ** attempt)
+                                await asyncio.sleep(backoff_delay)
+                                continue  # Retry
+                        else:
+                            # Client error (4xx) - don't retry
+                            error_text = await resp.text()
+                            self.logger.error(
+                                f"Slack alert failed with client error "
+                                f"(status {resp.status}): {error_text}"
+                            )
+                            return
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                # Network error or timeout - retry
+                self.logger.warning(
+                    f"Slack alert attempt {attempt + 1}/{max_retries} failed: {str(e)}"
+                )
+                if attempt < max_retries - 1:
+                    # Exponential backoff: 1s, 2s, 4s
+                    backoff_delay = 1 * (2 ** attempt)
+                    await asyncio.sleep(backoff_delay)
+                    continue
+            except Exception as e:
+                # Unexpected error - log and abort
+                self.logger.error(f"Slack alert failed with unexpected error: {str(e)}")
+                return
+        
+        # All retries exhausted
+        self.logger.error(
+            f"Slack alert failed after {max_retries} attempts for {alert_data.get('name')}"
+        )
 
     def _default_alert_configs(self) -> List[AlertConfig]:
         """Default alert configurations"""
