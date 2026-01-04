@@ -3,11 +3,11 @@
 Alert management module for monitoring pipeline health
 """
 
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta, timezone
-from dataclasses import dataclass
 import asyncio
 import logging
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AlertCondition:
     """Definition of an alert condition"""
+
     name: str
     metric_name: str
     threshold: float
@@ -25,11 +26,15 @@ class AlertCondition:
 
 class AlertManager:
     """Manages alert conditions and notifications"""
-    
-    def __init__(self, alert_configs: List[Dict[str, Any]], notification_handlers: Optional[List] = None) -> None:
+
+    def __init__(
+        self,
+        alert_configs: List[Dict[str, Any]],
+        notification_handlers: Optional[List] = None,
+    ) -> None:
         """
         Initialize alert manager
-        
+
         Args:
             alert_configs: List of alert configuration dictionaries
             notification_handlers: Optional list of async callables taking alert dict
@@ -37,38 +42,42 @@ class AlertManager:
         self.alert_configs = alert_configs
         self.logger = logging.getLogger(__name__)
         self.notification_handlers = notification_handlers or []
-        
+
         # Parse alert conditions
         self.conditions = self._parse_alert_configs(alert_configs)
-        
+
         # Track active alerts
         self.active_alerts: Dict[str, Dict[str, Any]] = {}
-        
+
         # Condition state tracking
         self.condition_states: Dict[str, datetime] = {}
-        
+
         # Metric cache for evaluation
         self.metric_cache: Dict[str, float] = {}
-        
-        self.logger.info(f"AlertManager initialized with {len(self.conditions)} conditions")
 
-    def _parse_alert_configs(self, configs: List[Dict[str, Any]]) -> List[AlertCondition]:
+        self.logger.info(
+            f"AlertManager initialized with {len(self.conditions)} conditions"
+        )
+
+    def _parse_alert_configs(
+        self, configs: List[Dict[str, Any]]
+    ) -> List[AlertCondition]:
         """Parse alert configurations into AlertCondition objects"""
         conditions = []
         for config in configs:
             try:
                 condition = AlertCondition(
-                    name=config.get('name', 'unnamed_alert'),
-                    metric_name=config.get('metric', ''),
-                    threshold=float(config.get('threshold', 0)),
-                    operator=config.get('operator', 'gt'),
-                    duration=int(config.get('duration', 60)),
-                    severity=config.get('severity', 'warning')
+                    name=config.get("name", "unnamed_alert"),
+                    metric_name=config.get("metric", ""),
+                    threshold=float(config.get("threshold", 0)),
+                    operator=config.get("operator", "gt"),
+                    duration=int(config.get("duration", 60)),
+                    severity=config.get("severity", "warning"),
                 )
                 conditions.append(condition)
             except (ValueError, KeyError) as e:
                 self.logger.error(f"Failed to parse alert config: {config}, error: {e}")
-        
+
         return conditions
 
     async def _alert_check_loop(self) -> None:
@@ -81,7 +90,7 @@ class AlertManager:
                 self.logger.info("Alert check loop cancelled")
                 break
             except Exception as e:
-                self.logger.error(f"Alert check loop error: {str(e)}")
+                self.logger.error(f"Alert check loop error: {e!s}")
                 await asyncio.sleep(30)
 
     async def _check_all_conditions(self) -> None:
@@ -98,21 +107,19 @@ class AlertManager:
         metric_value = self.metric_cache.get(condition.metric_name)
         if metric_value is None:
             return
-        
+
         # Evaluate condition
         is_triggered = self._evaluate_condition(
-            metric_value,
-            condition.threshold,
-            condition.operator
+            metric_value, condition.threshold, condition.operator
         )
-        
+
         now = datetime.now(timezone.utc)
-        
+
         if is_triggered:
             # Track when condition first became true
             if condition.name not in self.condition_states:
                 self.condition_states[condition.name] = now
-            
+
             # Check if duration threshold met
             since = self.condition_states[condition.name]
             if isinstance(since, datetime) and since.tzinfo is None:
@@ -130,17 +137,19 @@ class AlertManager:
             if condition.name in self.active_alerts:
                 await self._resolve_alert(condition.name)
 
-    def _evaluate_condition(self, value: float, threshold: float, operator: str) -> bool:
+    def _evaluate_condition(
+        self, value: float, threshold: float, operator: str
+    ) -> bool:
         """Evaluate if a condition is met"""
-        if operator == 'gt':
+        if operator == "gt":
             return value > threshold
-        elif operator == 'lt':
+        elif operator == "lt":
             return value < threshold
-        elif operator == 'gte':
+        elif operator == "gte":
             return value >= threshold
-        elif operator == 'lte':
+        elif operator == "lte":
             return value <= threshold
-        elif operator == 'eq':
+        elif operator == "eq":
             return abs(value - threshold) < 0.001  # Float equality with tolerance
         else:
             self.logger.warning(f"Unknown operator: {operator}")
@@ -149,31 +158,31 @@ class AlertManager:
     async def _fire_alert(self, condition: AlertCondition, value: float) -> None:
         """Fire an alert"""
         alert = {
-            'name': condition.name,
-            'metric': condition.metric_name,
-            'value': value,
-            'threshold': condition.threshold,
-            'severity': condition.severity,
-            'fired_at': datetime.now(timezone.utc),
-            'message': f"{condition.metric_name} is {value} (threshold: {condition.threshold})"
+            "name": condition.name,
+            "metric": condition.metric_name,
+            "value": value,
+            "threshold": condition.threshold,
+            "severity": condition.severity,
+            "fired_at": datetime.now(timezone.utc),
+            "message": f"{condition.metric_name} is {value} (threshold: {condition.threshold})",
         }
-        
+
         self.active_alerts[condition.name] = alert
-        
+
         # Log alert
         log_method = {
-            'critical': self.logger.critical,
-            'warning': self.logger.warning,
-            'info': self.logger.info
+            "critical": self.logger.critical,
+            "warning": self.logger.warning,
+            "info": self.logger.info,
         }.get(condition.severity, self.logger.warning)
-        
+
         log_method(f"ALERT FIRED: {alert['message']}")
-        
+
         # Dispatch to any configured async notification handlers
         if self.notification_handlers:
             results = await asyncio.gather(
                 *(handler(alert) for handler in self.notification_handlers),
-                return_exceptions=True
+                return_exceptions=True,
             )
             for result in results:
                 if isinstance(result, Exception):
@@ -193,15 +202,15 @@ class AlertManager:
     async def check_alert_conditions(self) -> Dict[str, Any]:
         """
         Check current alert conditions and return status
-        
+
         Returns:
             Dictionary with active alerts and overall status
         """
         return {
-            'active_alerts': list(self.active_alerts.values()),
-            'alert_count': len(self.active_alerts),
-            'conditions_tracked': len(self.conditions),
-            'checked_at': datetime.now(timezone.utc).isoformat()
+            "active_alerts": list(self.active_alerts.values()),
+            "alert_count": len(self.active_alerts),
+            "conditions_tracked": len(self.conditions),
+            "checked_at": datetime.now(timezone.utc).isoformat(),
         }
 
     def get_active_alerts(self) -> List[Dict[str, Any]]:

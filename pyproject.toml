@@ -11,7 +11,9 @@ known_first_party = ['src']
 [tool.ruff]
 line-length = 88
 select = ["E", "F", "W", "I", "B", "C90", "RUF"]
-ignore = ["E203", "W503"]
+# Removed unsupported selector `W503` which causes a TOML parse/error in ruff.
+ignore = ["E203"]
+exclude = [".git", "__pycache__", "build", "dist", "Solutions"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

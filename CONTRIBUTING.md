@@ -27,11 +27,13 @@ This project adheres to the Contributor Covenant code of conduct. By participati
 3. Update documentation
 4. Write meaningful commit messages
 5. Reference related issues
+6. Ensure CI passes: `pytest`, `black --check .`, `isort --check-only .`, `ruff check .` (GitHub Actions runs these checks automatically).
 
 ## Development Setup
 
 1. Fork the repository
 2. Set up development environment
+	- See the Quickstart in `README.md` for a minimal local setup.
 3. Create feature branch
 4. Make your changes
 5. Run tests

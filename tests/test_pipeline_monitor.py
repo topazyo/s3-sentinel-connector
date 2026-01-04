@@ -1,7 +1,6 @@
-import asyncio
 import pytest
 
-from src.monitoring.pipeline_monitor import PipelineMonitor, AlertConfig
+from src.monitoring.pipeline_monitor import PipelineMonitor
 
 
 class _FakeMetricsClient:
@@ -12,19 +11,19 @@ class _FakeMetricsClient:
 
 @pytest.fixture(autouse=True)
 def no_background_tasks(monkeypatch):
-    monkeypatch.setattr('asyncio.create_task', lambda *args, **kwargs: None)
+    monkeypatch.setattr("asyncio.create_task", lambda *args, **kwargs: None)
 
 
 @pytest.fixture()
 def monitor(monkeypatch):
     monkeypatch.setattr(
-        'src.monitoring.pipeline_monitor.MetricsIngestionClient',
-        lambda endpoint, credential: _FakeMetricsClient()
+        "src.monitoring.pipeline_monitor.MetricsIngestionClient",
+        lambda endpoint, credential: _FakeMetricsClient(),
     )
     return PipelineMonitor(
-        metrics_endpoint='https://metrics',
-        app_name='app',
-        environment='dev',
+        metrics_endpoint="https://metrics",
+        app_name="app",
+        environment="dev",
         teams_webhook=None,
         slack_webhook=None,
         s3_health_url=None,
@@ -35,23 +34,23 @@ def monitor(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_record_metric_caches_value(monkeypatch, monitor):
-    await monitor.record_metric('pipeline_lag', 5)
-    assert monitor._metric_cache['pipeline_lag']['value'] == 5
+    await monitor.record_metric("pipeline_lag", 5)
+    assert monitor._metric_cache["pipeline_lag"]["value"] == 5
 
 
 @pytest.mark.asyncio
 async def test_health_checks_without_urls(monkeypatch, monitor):
     s3 = await monitor._check_s3_health()
     sentinel = await monitor._check_sentinel_health()
-    assert s3['status'] is True
-    assert sentinel['status'] is True
+    assert s3["status"] is True
+    assert sentinel["status"] is True
 
 
 @pytest.mark.asyncio
 async def test_alert_condition_triggers(monkeypatch, monitor):
     # ensure metric cache has value above threshold for pipeline_lag (default 300)
-    monitor._metric_cache['pipeline_lag'] = {'value': 400}
-    cfg = next(c for c in monitor.alert_configs if c.name == 'pipeline_lag')
+    monitor._metric_cache["pipeline_lag"] = {"value": 400}
+    cfg = next(c for c in monitor.alert_configs if c.name == "pipeline_lag")
     await monitor._check_alert_condition(cfg)
     assert monitor._active_alerts
 
@@ -90,12 +89,12 @@ class _FakeSession:
 
 @pytest.mark.asyncio
 async def test_teams_alert_missing_webhook(monkeypatch, monitor):
-    await monitor._send_teams_alert({'name': 'test'})  # should no-op and not raise
+    await monitor._send_teams_alert({"name": "test"})  # should no-op and not raise
 
 
 @pytest.mark.asyncio
 async def test_slack_alert_missing_webhook(monkeypatch, monitor):
-    await monitor._send_slack_alert({'name': 'test'})  # should no-op and not raise
+    await monitor._send_slack_alert({"name": "test"})  # should no-op and not raise
 
 
 @pytest.mark.asyncio
@@ -109,22 +108,24 @@ async def test_health_check_http_failure(monkeypatch, monitor):
     async def _fake_session_factory(*args, **kwargs):
         return fake_session
 
-    monkeypatch.setattr('aiohttp.ClientSession', _fake_session_factory)
+    monkeypatch.setattr("aiohttp.ClientSession", _fake_session_factory)
 
     s3 = await monitor._check_s3_health()
     sentinel = await monitor._check_sentinel_health()
 
-    assert s3['status'] is False
-    assert sentinel['status'] is False
+    assert s3["status"] is False
+    assert sentinel["status"] is False
 
 
 @pytest.mark.asyncio
 async def test_record_metric_handles_ingest_failure(monkeypatch, monitor):
-    monitor.metrics_client.ingest_metrics = lambda payload: (_ for _ in ()).throw(RuntimeError("boom"))
+    monitor.metrics_client.ingest_metrics = lambda payload: (_ for _ in ()).throw(
+        RuntimeError("boom")
+    )
 
-    await monitor.record_metric('pipeline_lag', 7)
+    await monitor.record_metric("pipeline_lag", 7)
 
-    assert monitor._metric_cache['pipeline_lag']['value'] == 7
+    assert monitor._metric_cache["pipeline_lag"]["value"] == 7
 
 
 @pytest.mark.asyncio
@@ -136,16 +137,18 @@ async def test_teams_alert_http_error(monkeypatch, monitor):
     def _fake_session_factory(*args, **kwargs):
         return fake_session
 
-    monkeypatch.setattr('aiohttp.ClientSession', _fake_session_factory)
+    monkeypatch.setattr("aiohttp.ClientSession", _fake_session_factory)
 
-    await monitor._send_teams_alert({
-        'name': 'test',
-        'severity': 'high',
-        'threshold': 1,
-        'current_value': 2,
-        'environment': 'dev',
-        'description': 'failure path'
-    })  # should not raise
+    await monitor._send_teams_alert(
+        {
+            "name": "test",
+            "severity": "high",
+            "threshold": 1,
+            "current_value": 2,
+            "environment": "dev",
+            "description": "failure path",
+        }
+    )  # should not raise
 
 
 @pytest.mark.asyncio
@@ -157,13 +160,15 @@ async def test_slack_alert_http_error(monkeypatch, monitor):
     def _fake_session_factory(*args, **kwargs):
         return fake_session
 
-    monkeypatch.setattr('aiohttp.ClientSession', _fake_session_factory)
+    monkeypatch.setattr("aiohttp.ClientSession", _fake_session_factory)
 
-    await monitor._send_slack_alert({
-        'name': 'test',
-        'severity': 'high',
-        'threshold': 1,
-        'current_value': 2,
-        'environment': 'dev',
-        'description': 'failure path'
-    })  # should not raise
+    await monitor._send_slack_alert(
+        {
+            "name": "test",
+            "severity": "high",
+            "threshold": 1,
+            "current_value": 2,
+            "environment": "dev",
+            "description": "failure path",
+        }
+    )  # should not raise

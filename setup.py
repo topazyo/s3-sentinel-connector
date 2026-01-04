@@ -1,13 +1,31 @@
 # setup.py
 
-from setuptools import setup, find_packages
-from typing import List
 import os
+from typing import List
+
+from setuptools import find_packages, setup
+
 
 def read_requirements(filename: str) -> List[str]:
-    """Read requirements from file"""
-    with open(os.path.join("requirements", filename)) as f:
-        return [line.strip() for line in f if line.strip() and not line.startswith("#")]
+    """Read requirements from a top-level requirements file.
+
+    Historically this helper read from a `requirements/` folder. The project
+    places `requirements.txt` and `requirements-dev.txt` at the repository
+    root — read those files directly to avoid FileNotFoundError.
+    """
+    path = os.path.join(os.path.dirname(__file__), filename)
+    if not os.path.exists(path):
+        # Fallback to top-level file name if called with a path fragment
+        path = os.path.join(os.path.dirname(__file__), os.pardir, filename)
+        path = os.path.normpath(path)
+
+    with open(path, "r", encoding="utf-8") as f:
+        return [
+            line.strip()
+            for line in f
+            if line.strip() and not line.strip().startswith("#")
+        ]
+
 
 setup(
     name="s3-sentinel-connector",
