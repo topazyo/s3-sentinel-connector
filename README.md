@@ -144,7 +144,3 @@ TODOs (verification needed):
 
 ## License
 This project is licensed under MIT — see the `LICENSE` file.
-
-## What changed and why
-- Reorganized README to be Quickstart-first and to only state facts verified in the repository.
-- Added TODOs where behavior or recommended practices require confirmation against runtime or ops knowledge.
