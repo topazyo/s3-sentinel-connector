@@ -13,12 +13,6 @@ Top-level docs
 - `CONTRIBUTING.md` — How to contribute, PR checks, commit style, and review guidance.
 - `LICENSE` — Project license (MIT).
 
-Audit & governance
--------------------
-- `AGENTS.md` — Agent operating rules and governance reference.
-- `audit/VIBE_AUDIT_ROADMAP.md` — Audit findings and Phase 10 execution roadmap.
-- `audit/VIBE_DEBT_EXECUTIVE_SUMMARY.md` — Executive summary of technical debt.
-
 Configuration & deployment
 ---------------------------
 - `config/` — YAML config defaults and environment overrides (`base.yaml`, `dev.yaml`, `prod.yaml`).
