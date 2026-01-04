@@ -1,5 +1,7 @@
 # Quality Gate: S3 Sentinel Connector Validation Checklist
 
+NOTE: This solution-level checklist supplements the canonical deployment guide located at `docs/deployment.md`. For end-to-end deployment and environment setup, use `docs/deployment.md` as the primary reference.
+
 **Solution Name**: S3 to Sentinel Data Connector  
 **Version**: 1.0.0  
 **Date**: 2025-12-26  

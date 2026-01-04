@@ -14,50 +14,128 @@ A high-performance, secure connector for transferring logs from AWS S3 to Micros
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/s3-sentinel-connector.git
+# S3 to Sentinel Log Connector
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python: 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)]
+
+Short description
+-----------------
+You can reliably ingest, normalize, and route logs stored in AWS S3 into Microsoft Sentinel (Log Analytics) using batch processing, schema-validated parsers, Key Vault–backed secrets, and built-in observability.
+
+Key features
+------------
+- Batch S3 ingestion with filtering and retry/backoff for resilience.
+- Schema-validated parsers and table routing for multiple log types.
+- Secrets management integrated with Azure Key Vault and rotation hooks.
+- Structured observability via PipelineMonitor and alert configurations.
+- Deployment-ready artifacts: Terraform modules and Kubernetes manifests included under `deployment/`.
+
+Prerequisites
+-------------
+- Python 3.9+ (project configured for `py39` in `pyproject.toml`).
+- pip (to install `requirements.txt`).
+- (Optional) Docker, Terraform, Azure CLI (`az`), and `kubectl` for deployments.
+
+Quick Start (5-minute)
+----------------------
+Run these commands from the repository root. They use existing scripts and files included in the project.
+
+```bash
+# Clone
+git clone https://github.com/topazyo/s3-sentinel-connector.git
 cd s3-sentinel-connector
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or
-.\venv\Scripts\activate  # Windows
-
-# Install dependencies
+# Create virtualenv and install runtime deps
+python -m venv .venv
+# macOS / Linux
+source .venv/bin/activate
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+
+# (Optional) install dev tools
+pip install -r requirements-dev.txt
+
+# Run tests
+pytest -q
+
+# Run lint checks
+black --check .
+isort --check-only .
+ruff check .
 ```
 
-## Usage
+Configuration
+-------------
+Config is primarily stored in YAML files under the `config/` directory and supplemented by environment variables for secrets and runtime overrides.
 
-Basic usage example:
-```python
-from src.core.s3_handler import S3Handler
-from src.core.sentinel_router import SentinelRouter
+Create a local `.env` for development by copying the provided template:
 
-# Initialize handlers
-s3_handler = S3Handler(aws_access_key, aws_secret_key, region)
-sentinel_router = SentinelRouter()
-
-# Process logs
-objects = s3_handler.list_objects(bucket_name, prefix)
-s3_handler.process_files_batch(bucket_name, objects)
-```
-
-## Configuration
-
-Create a `.env` file with your credentials:
-```
-AWS_ACCESS_KEY=your_access_key
-AWS_SECRET_KEY=your_secret_key
-AZURE_TENANT_ID=your_tenant_id
-```
-
-## Testing
 ```bash
-pytest tests/
+cp .env.example .env
+# PowerShell: Copy-Item .env.example .env
 ```
 
-## Contributing
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+Important environment variables (examples):
 
-## License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+- `AWS_REGION` — AWS region (e.g., `us-west-2`)
+- `S3_BUCKET_NAME` — S3 bucket to ingest from
+- `KEY_VAULT_URL` — Azure Key Vault URL (e.g., `https://<kv-name>.vault.azure.net`)
+- `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` — Azure credentials for Key Vault access (use managed identity in production if possible)
+- `SENTINEL_WORKSPACE_ID` — Log Analytics workspace ID for ingestion
+- `POLLING_INTERVAL_MINUTES`, `BATCH_SIZE` — runtime tuning parameters
+
+Files of interest
+-----------------
+- `config/base.yaml` — default configuration values
+- `src/config/config_manager.py` — typed access & validation for config
+- `src/core/s3_handler.py` — S3 listing and batch processing
+- `src/core/log_parser.py` — parser contract and normalization
+- `src/core/sentinel_router.py` — routing and batching logic for Sentinel
+- `src/security/credential_manager.py` — Key Vault-backed secret access
+- `src/monitoring/pipeline_monitor.py` — metrics and alert helpers
+- `deployment/` — Terraform modules, Kubernetes manifests, and deployment scripts
+- `Solutions/S3SentinelConnector/Verification/Simulate_Ingest.py` — local ingestion simulator for verification
+
+Development workflow
+--------------------
+- Install dev dependencies: `pip install -r requirements-dev.txt` or `make install-dev`.
+- Formatting: `black .` and `isort .` (or use `make format`).
+- Linting: `ruff check .` and `isort --check-only .` and `black --check .` (or use `make lint`).
+- Run tests: `pytest -q` (or `make test`).
+
+Project structure (high level)
+------------------------------
+- `src/` — application source code
+	- `src/core/` — ingestion, parsing, routing components
+	- `src/config/` — configuration manager
+	- `src/security/` — credential and rotation helpers
+	- `src/utils/` — retry, backoff, and resilience utilities
+	- `src/monitoring/` — metrics and alerting helpers
+- `tests/` — unit and integration tests
+- `deployment/` — infra modules and deployment scripts
+- `Solutions/` — solution packaging and verification artifacts
+
+Contributing
+------------
+See `CONTRIBUTING.md` for contribution guidelines. Quick points:
+
+- Run tests and linters before opening a PR.
+- Keep changes small and well documented.
+- Add unit tests for new functionality.
+
+Maintenance notes
+-----------------
+- I added `pyproject.toml`, `.env.example`, `requirements-dev.txt`, a GitHub Actions CI workflow (`.github/workflows/ci.yml`), and a `Makefile` to standardize development tasks.
+- Consider consolidating overlapping docs under `Solutions/` and `docs/` into a single canonical `docs/` area.
+
+Discrepancies found
+-------------------
+- No CI badges were present previously; CI workflow is now added but you must enable Actions to get a badge URL.
+- The old README referenced `yourusername` and example snippets that were generic — replaced with accurate repo owner and commands.
+- There was no `.env.example` originally; one is now added to help onboarding.
+
+License
+-------
+This project is licensed under the MIT License — see the `LICENSE` file.

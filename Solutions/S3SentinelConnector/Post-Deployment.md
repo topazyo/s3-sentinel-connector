@@ -1,5 +1,7 @@
 # Post-Deployment Guide: S3 to Sentinel Data Connector
 
+NOTE: This solution-level post-deployment guide supplements the canonical deployment guide at `docs/deployment.md`. For end-to-end deployment steps prefer `docs/deployment.md` and use this document for detailed verification checklists and solution-specific scripts.
+
 This guide provides step-by-step instructions for completing the deployment and validating the S3 to Sentinel Data Connector.
 
 ## Prerequisites Checklist

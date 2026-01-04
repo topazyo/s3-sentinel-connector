@@ -50,6 +50,8 @@ The **S3 to Sentinel Data Connector** enables secure, high-performance ingestion
 
 ## Deployment
 
+NOTE: This solution README contains solution-specific deployment options. For the canonical end-to-end deployment instructions, use `docs/deployment.md`.
+
 ### Deploy via Azure Portal
 
 1. Click the **Deploy to Azure** button below
