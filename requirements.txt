@@ -1,157 +1,32 @@
-# S3→Azure Sentinel Connector - Python Dependencies
-# Phase 2 (Consistency - B1-013): Comprehensive dependency documentation
-# Last Updated: January 2, 2026
+# Runtime dependencies only.
+# Dev/test tools belong in requirements-dev.txt and requirements-test.txt.
 
-# ==============================================================================
-# CORE DEPENDENCIES (Production)
-# ==============================================================================
+# AWS integration
+boto3>=1.34.0,<2.0.0
+botocore>=1.34.0,<2.0.0
 
-# AWS S3 Integration
-boto3>=1.42.0,<2.0.0              # AWS SDK for Python (S3 operations)
-botocore>=1.42.0,<2.0.0            # Low-level AWS SDK core
+# Azure integration
+azure-functions>=1.18.0,<2.0.0
+azure-identity>=1.16.0,<2.0.0
+azure-keyvault-secrets>=4.8.0,<5.0.0
+azure-monitor-ingestion>=1.0.0,<2.0.0
+azure-core>=1.30.0,<2.0.0
 
-# Azure Integration
-azure-functions>=1.24.0,<2.0.0     # Azure Functions runtime
-azure-identity>=1.25.0,<2.0.0      # Azure authentication (DefaultAzureCredential, ManagedIdentity)
-azure-keyvault-secrets>=4.10.0,<5.0.0  # Key Vault secrets management
-azure-monitor-ingestion>=1.1.0,<2.0.0  # Azure Monitor log ingestion
-azure-core>=1.36.0,<2.0.0          # Azure SDK core components
+# Security & encryption
+cryptography>=42.0.0,<46.0.0
+PyJWT>=2.8.0,<3.0.0
 
-# Security & Encryption
-cryptography>=45.0.0,<46.0.0       # Fernet encryption, key management (Phase 5: B1-003)
-PyJWT>=2.10.0,<3.0.0               # JWT token generation/validation (Phase 5: B1-005, B1-006)
+# Configuration
+PyYAML>=6.0.0,<7.0.0
+watchdog>=4.0.0,<7.0.0
 
-# Configuration Management
-PyYAML>=6.0.1,<7.0.0               # YAML config parsing
-watchdog>=6.0.0,<7.0.0             # Config file hot-reload monitoring
+# Date/time
+python-dateutil>=2.8.2,<3.0.0
 
-# Date/Time Handling
-python-dateutil>=2.9.0,<3.0.0      # Date parsing and timezone handling
+# HTTP
+requests>=2.31.0,<3.0.0
+aiohttp>=3.9.0,<4.0.0
 
-# HTTP Requests
-requests>=2.32.0,<3.0.0            # HTTP requests (Phase 4: timeouts enforced)
-aiohttp>=3.13.0,<4.0.0             # Async HTTP for monitoring webhooks
-
-# Data Processing & Validation
-jsonschema>=4.25.0,<5.0.0          # JSON schema validation (Phase 3: contracts)
-
-# Monitoring & Observability (Phase 4)
-prometheus_client>=0.23.0,<1.0.0   # Prometheus metrics export
-
-# Machine Learning (Optional)
-numpy>=2.3.0,<3.0.0                # Numerical computing
-pandas>=2.3.0,<3.0.0               # Data manipulation
-scikit-learn>=1.8.0,<2.0.0         # ML models (anomaly detection)
-joblib>=1.5.0,<2.0.0               # Model serialization
-
-# ==============================================================================
-# TESTING DEPENDENCIES (Development)
-# ==============================================================================
-
-# Test Framework
-pytest>=9.0.0,<10.0.0              # Test runner (Phase 7: testing framework)
-pytest-asyncio>=1.3.0,<2.0.0       # Async test support
-pytest-cov>=7.0.0,<8.0.0           # Test coverage reporting
-
-# Test Utilities
-Faker>=37.5.0,<38.0.0              # Test data generation
-moto>=4.2.0,<5.0.0                 # AWS service mocking (S3, etc.)
-responses>=0.25.0,<1.0.0           # HTTP response mocking
-
-# ==============================================================================
-# DEVELOPMENT DEPENDENCIES (Optional)
-# ==============================================================================
-
-# Code Quality (Optional - not required for runtime)
-# black>=24.0.0,<25.0.0            # Code formatting
-# flake8>=7.0.0,<8.0.0             # Linting
-# mypy>=1.11.0,<2.0.0              # Type checking
-# bandit>=1.8.0,<2.0.0             # Security scanning
-
-# Documentation (Optional)
-# sphinx>=8.0.0,<9.0.0             # Documentation generation
-# sphinx-rtd-theme>=3.0.0,<4.0.0   # Read the Docs theme
-
-# ==============================================================================
-# TRANSITIVE DEPENDENCIES (Auto-installed, listed for reference)
-# ==============================================================================
-
-# The following are installed automatically as dependencies of the above packages:
-# - aiohappyeyeballs (from aiohttp)
-# - aiosignal (from aiohttp)
-# - attrs (from aiohttp, jsonschema)
-# - certifi (from requests)
-# - cffi (from cryptography)
-# - charset-normalizer (from requests)
-# - colorama (from pytest on Windows)
-# - coverage (from pytest-cov)
-# - dnspython (from email-validator)
-# - email_validator (from pydantic)
-# - frozenlist (from aiohttp)
-# - idna (from requests, yarl)
-# - iniconfig (from pytest)
-# - isodate (from azure-core)
-# - jmespath (from boto3)
-# - msal (from azure-identity)
-# - msal-extensions (from azure-identity)
-# - multidict (from aiohttp, yarl)
-# - packaging (from pytest)
-# - pluggy (from pytest)
-# - propcache (from yarl)
-# - pycparser (from cffi)
-# - pydantic (from azure-core)
-# - referencing (from jsonschema)
-# - rpds-py (from jsonschema)
-# - s3transfer (from boto3)
-# - scipy (from scikit-learn)
-# - six (from python-dateutil)
-# - threadpoolctl (from scikit-learn)
-# - typing_extensions (from pydantic, azure-core)
-# - urllib3 (from requests, botocore)
-# - yarl (from aiohttp)
-
-# ==============================================================================
-# INSTALLATION INSTRUCTIONS
-# ==============================================================================
-
-# Production Install:
-#   pip install -r requirements.txt
-#
-# Development Install (with test dependencies):
-#   pip install -r requirements.txt
-#
-# Minimal Install (without ML):
-#   pip install -r requirements.txt
-#   # Then uninstall: pip uninstall numpy pandas scikit-learn joblib -y
-#
-# Version Pinning:
-#   For production deployments, consider using pip freeze > requirements-lock.txt
-#   to pin exact versions for reproducible builds.
-#
-# Security Updates:
-#   Run `pip list --outdated` regularly to check for security updates.
-#   Update constraints as needed while testing compatibility.
-
-# ==============================================================================
-# NOTES
-# ==============================================================================
-
-# Version Constraints:
-# - Major version pins (e.g., <2.0.0) prevent breaking changes
-# - Minor version requirements ensure necessary features available
-# - Compatible with Python 3.9+ (3.13 recommended)
-#
-# Security Considerations (Phase 5):
-# - cryptography: Encryption key management (B1-003: file permissions)
-# - PyJWT: Secure token handling (B1-005: plain-text blocking, B1-006: length validation)
-# - azure-keyvault-secrets: Credential storage (no hardcoded secrets)
-#
-# Performance Considerations (Phase 6):
-# - boto3/botocore: Configured with connection pooling
-# - aiohttp: Async HTTP reduces latency
-# - numpy/pandas: Optimized data processing for ML pipeline
-#
-# Resilience (Phase 4):
-# - requests: Timeout enforcement on all HTTP calls
-# - watchdog: Config hot-reload without restart
-# - prometheus_client: Metrics for observability
+# Validation & observability
+jsonschema>=4.20.0,<5.0.0
+prometheus_client>=0.20.0,<1.0.0

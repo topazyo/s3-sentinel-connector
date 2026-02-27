@@ -1,4 +1,5 @@
 # src/security/encryption.py
+"""Encryption key lifecycle and payload encryption utilities."""
 
 import logging
 import os
@@ -22,6 +23,8 @@ class EncryptionConfig:
 
 
 class EncryptionManager:
+    """Maintains encryption keys, rotation, and secure key-store permissions."""
+
     def __init__(
         self, key_store_path: str, config: Optional[EncryptionConfig] = None
     ) -> None:

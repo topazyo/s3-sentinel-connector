@@ -1,4 +1,5 @@
 # src/monitoring/component_metrics.py
+"""Per-component metric aggregation utilities for pipeline observability."""
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ class ComponentMetrics:
     component_name: str
 
     def __post_init__(self):
+        """Initialize metric counters and timestamps for the component."""
         self.metrics = {
             "processed_count": 0,
             "error_count": 0,

@@ -22,20 +22,20 @@ variable "network_config" {
 variable "aks_config" {
   type = object({
     kubernetes_version = string
-    node_count        = number
-    vm_size           = string
-    min_nodes         = number
-    max_nodes         = number
+    node_count         = number
+    vm_size            = string
+    min_nodes          = number
+    max_nodes          = number
   })
   description = "AKS configuration"
 }
 
 variable "monitoring_config" {
   type = object({
-    retention_days     = number
-    log_analytics_sku  = string
-    enable_prometheus  = bool
-    metrics_retention  = string
+    retention_days    = number
+    log_analytics_sku = string
+    enable_prometheus = bool
+    metrics_retention = string
   })
   description = "Monitoring configuration"
 }

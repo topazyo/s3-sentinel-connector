@@ -1,4 +1,5 @@
 # src/security/config_validator.py
+"""Security-focused configuration validation and policy enforcement helpers."""
 
 import ipaddress
 import json
@@ -25,6 +26,8 @@ class SecurityPolicy:
 
 
 class ConfigurationValidator:
+    """Validates runtime configuration against security policy constraints."""
+
     def __init__(self, policy: Optional[SecurityPolicy] = None) -> None:
         """
         Initialize configuration validator
@@ -154,7 +157,9 @@ class ConfigurationValidator:
 
         return results
 
-    def _validate_permissions(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_permissions(  # noqa: C901 (complexity justified by comprehensive RBAC validation)
+        self, config: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Validate RBAC permission structure and definitions.
 
@@ -268,6 +273,8 @@ class ConfigurationValidator:
 
         def check_value(value: Any, path: str):
             if isinstance(value, str):
+                if self._is_secret_reference(value):
+                    return
                 # Check if value matches sensitive patterns
                 for pattern in sensitive_patterns:
                     if re.search(pattern, value, re.IGNORECASE):
@@ -289,6 +296,17 @@ class ConfigurationValidator:
                     check_value(value, current_path)
 
         traverse_dict(config)
+
+    def _is_secret_reference(self, value: str) -> bool:
+        """Return True when value looks like a secure secret reference."""
+        normalized = value.strip().lower()
+        if normalized.startswith("keyvault:"):
+            return True
+
+        return (
+            normalized.startswith("https://")
+            and ".vault.azure.net/secrets/" in normalized
+        )
 
     def _is_secure_algorithm(self, algorithm: str) -> bool:
         """Check if encryption algorithm is secure"""

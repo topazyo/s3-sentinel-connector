@@ -61,3 +61,17 @@ class TestConfigurationValidator:
 
         results = validator.validate_configuration(config)
         assert len(results["warnings"]) == 2
+
+    def test_keyvault_references_not_flagged_as_sensitive_data(self, validator):
+        config = {
+            "sentinel": {
+                "api_key": "keyvault:sentinel-api-key",
+                "workspace_key": "https://myvault.vault.azure.net/secrets/sentinel-key",
+            }
+        }
+
+        results = validator.validate_configuration(config)
+        assert not any("sentinel.api_key" in warning for warning in results["warnings"])
+        assert not any(
+            "sentinel.workspace_key" in warning for warning in results["warnings"]
+        )

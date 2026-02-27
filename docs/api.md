@@ -1,185 +1,184 @@
 # API Documentation
 
+This document provides a quick-reference API surface for the core modules.
+For detailed contract definitions (input/output/failure behavior), see `docs/API_CONTRACTS.md`.
+
 ## Core Components
 
-### S3Handler
+### S3Handler (`src/core/s3_handler.py`)
 
 ```python
 class S3Handler:
-    async def list_objects(
+    def list_objects(
+        self,
         bucket: str,
         prefix: str = "",
-        last_processed_time: Optional[datetime] = None
-    ) -> List[Dict]:
-        """
-        List objects in S3 bucket
-        
-        Args:
-            bucket: S3 bucket name
-            prefix: Object prefix
-            last_processed_time: Only list objects after this time
-            
-        Returns:
-            List of object metadata
-        """
+        last_processed_time: Optional[datetime] = None,
+        max_keys: int = 1000,
+    ) -> List[Dict[str, Any]]
+
+    async def list_objects_async(
+        self,
+        bucket: str,
+        prefix: str = "",
+        last_processed_time: Optional[datetime] = None,
+        max_keys: int = 1000,
+    ) -> List[Dict[str, Any]]
+
+    def process_files_batch(
+        self,
+        bucket: str,
+        objects: List[Dict[str, Any]],
+        parser: Optional[LogParser] = None,
+        callback: Optional[callable] = None,
+        log_type: Optional[str] = None,
+        batch_size: Optional[int] = None,
+    ) -> Dict[str, Any]
+
+    async def process_files_batch_async(
+        self,
+        bucket: str,
+        objects: List[Dict[str, Any]],
+        parser: Optional[LogParser] = None,
+        callback: Optional[callable] = None,
+        log_type: Optional[str] = None,
+        batch_size: Optional[int] = None,
+    ) -> Dict[str, Any]
 ```
 
-### SentinelRouter
+**Behavior summary**
+- `list_objects` is synchronous; `list_objects_async` is the async wrapper.
+- Batch processors return per-file success/failure aggregates and metrics.
+- Content validation and parser validation are enforced before callback dispatch.
+
+### LogParser (`src/core/log_parser.py`)
+
+```python
+class LogParser(ABC):
+    def parse(self, log_data: bytes) -> Dict[str, Any]
+    def validate(self, parsed_data: Dict[str, Any]) -> bool
+```
+
+**Implementations**
+- `FirewallLogParser`
+- `JsonLogParser`
+
+**Behavior summary**
+- `parse` transforms raw bytes into normalized dictionaries.
+- `validate` returns boolean validity and is expected to be called before routing.
+- Parser-specific exceptions use `LogParserException` semantics.
+
+### SentinelRouter (`src/core/sentinel_router.py`)
 
 ```python
 class SentinelRouter:
     async def route_logs(
+        self,
         log_type: str,
         logs: List[Dict[str, Any]],
-        data_classification: str = 'standard'
-    ) -> Dict[str, Any]:
-        """
-        Route logs to Sentinel
-        
-        Args:
-            log_type: Type of logs
-            logs: Log data
-            data_classification: Data classification level
-            
-        Returns:
-            Routing results
-        """
+        data_classification: str = "standard",
+    ) -> Dict[str, Any]
+
+    def get_failed_batch_metrics(self) -> Dict[str, Any]
+    def get_health_status(self) -> Dict[str, Any]
 ```
 
-## ML Components
-
-### MLEnhancedConnector
-
-```python
-class MLEnhancedConnector:
-    async def process_logs(
-        logs: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """
-        Process logs with ML enhancements
-        
-        Args:
-            logs: Raw log data
-            
-        Returns:
-            Enhanced logs with ML insights
-        """
-```
+**Behavior summary**
+- `route_logs` batches and ingests records by table config.
+- Unsupported `log_type` raises `ValueError`.
+- Empty input returns a skip response (`{"status": "skip", "message": "No logs to process"}`).
+- Failures are categorized and tracked for observability (`failure_reasons`, failure rate, recommendations).
 
 ## Security Components
 
-### CredentialManager
+### CredentialManager (`src/security/credential_manager.py`)
 
 ```python
 class CredentialManager:
     async def get_credential(
+        self,
         credential_name: str,
-        force_refresh: bool = False
-    ) -> str:
-        """
-        Get credential from vault or cache
-        
-        Args:
-            credential_name: Name of credential
-            force_refresh: Force refresh from vault
-            
-        Returns:
-            Credential value
-        """
+        force_refresh: bool = False,
+    ) -> str
 ```
+
+**Behavior summary**
+- Reads from encrypted cache first when valid, unless `force_refresh=True`.
+- Uses circuit-breaker-protected Key Vault access for resilience.
+- Can raise `CircuitBreakerOpenError` or `RetryableError` in transient/failure states.
+
+## Configuration Components
+
+### ConfigManager (`src/config/config_manager.py`)
+
+```python
+class ConfigManager:
+    @classmethod
+    async def create(
+        cls,
+        config_path: Optional[str] = None,
+        environment: str = "dev",
+        vault_url: Optional[str] = None,
+        enable_hot_reload: bool = True,
+    ) -> "ConfigManager"
+
+    def get_config(self, component: str) -> Dict[str, Any]
+```
+
+**Behavior summary**
+- `create` performs async initialization and optional Key Vault setup.
+- `get_config` returns merged/validated component configuration.
 
 ## Monitoring Components
 
-### PipelineMonitor
+### PipelineMonitor (`src/monitoring/pipeline_monitor.py`)
 
 ```python
 class PipelineMonitor:
+    async def start(self) -> None
+
     async def record_metric(
+        self,
         metric_name: str,
         value: float,
-        labels: Optional[Dict[str, str]] = None
-    ) -> None:
-        """
-        Record metric
-        
-        Args:
-            metric_name: Name of metric
-            value: Metric value
-            labels: Metric labels
-        """
+        labels: Optional[Dict[str, str]] = None,
+    ) -> None
+
+    async def update_component_health(
+        self,
+        component: str,
+        status: bool,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None
 ```
 
-## Error Handling
+**Behavior summary**
+- `start` launches background health/alert/export loops.
+- Metric recording is async and non-blocking toward pipeline flow.
+- Component health updates are reflected in metric stream and internal state.
 
-### Common Errors
+## Error Types
+
+Common operational error classes used across modules include:
+- `RetryableError`
+- `NonRetryableError`
+- `CircuitBreakerOpenError`
+- `LogParserException`
+
+Refer to module-specific contracts in `docs/API_CONTRACTS.md` for precise failure conditions.
+
+## Minimal Usage Example
 
 ```python
-class RetryableError(Exception):
-    """Error that should trigger retry"""
-    pass
+# S3 list + route example
+objects = s3_handler.list_objects(bucket="my-bucket", prefix="firewall/")
 
-class NonRetryableError(Exception):
-    """Error that should not be retried"""
-    pass
-```
-
-## Configuration
-
-### Example Configuration
-
-```yaml
-azure:
-  key_vault_url: str
-  tenant_id: str
-  
-aws:
-  region: str
-  bucket_name: str
-  
-sentinel:
-  workspace_id: str
-  dcr_endpoint: str
-```
-
-## Usage Examples
-
-### Basic Usage
-
-```python
-# Initialize components
-s3_handler = S3Handler(...)
-sentinel_router = SentinelRouter(...)
-ml_connector = MLEnhancedConnector(...)
-
-# Process logs
-logs = await s3_handler.list_objects(bucket, prefix)
-enhanced_logs = await ml_connector.process_logs(logs)
-result = await sentinel_router.route_logs('firewall', enhanced_logs)
-```
-
-### Error Handling
-
-```python
-try:
-    result = await process_logs(logs)
-except RetryableError as e:
-    # Implement retry logic
-    pass
-except NonRetryableError as e:
-    # Log error and continue
-    pass
-```
-
-### Monitoring
-
-```python
-# Record metrics
-await monitor.record_metric(
-    'logs_processed',
-    len(logs),
-    {'source': 's3', 'type': 'firewall'}
+# Convert object payloads through your parser flow, then route
+result = await sentinel_router.route_logs(
+    log_type="firewall",
+    logs=prepared_logs,
+    data_classification="standard",
 )
 
-# Check health
-health = await monitor.get_component_health('s3_handler')
+await monitor.record_metric("logs_processed", float(result.get("processed", 0)))
 ```

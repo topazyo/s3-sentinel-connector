@@ -1,4 +1,5 @@
 # src/security/audit.py
+"""Audit event persistence and integrity verification utilities."""
 
 import hashlib
 import json
@@ -23,6 +24,8 @@ class AuditEvent:
 
 
 class AuditLogger:
+    """Writes structured audit events and verifies tamper-detection hashes."""
+
     def __init__(self, log_path: str) -> None:
         """
         Initialize audit logger
@@ -71,7 +74,7 @@ class AuditLogger:
         try:
             with open(self.log_path, "r") as f:
                 for line in f:
-                    timestamp, event_json = line.strip().split("|", 1)
+                    _timestamp, event_json = line.strip().split("|", 1)
                     event_dict = json.loads(event_json)
 
                     # Extract and verify hash

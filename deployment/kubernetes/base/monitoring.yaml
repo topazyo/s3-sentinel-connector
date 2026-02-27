@@ -28,3 +28,19 @@ spec:
       annotations:
         description: "Log processing latency is high"
         summary: "High processing latency detected"
+    - alert: SentinelIngestionFailures
+      expr: rate(s3_sentinel_failed_records_total[5m]) > 0.05
+      for: 10m
+      labels:
+        severity: critical
+      annotations:
+        description: "Failed record ingestion rate exceeded threshold"
+        summary: "Sentinel ingestion failures detected"
+    - alert: ConnectorDroppedLogs
+      expr: increase(s3_sentinel_dropped_logs_total[15m]) > 100
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        description: "Dropped log count increased significantly over 15 minutes"
+        summary: "Dropped logs threshold exceeded"

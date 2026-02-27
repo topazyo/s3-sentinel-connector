@@ -1,10 +1,11 @@
 # Quality Gate: S3 Sentinel Connector Validation Checklist
 
 NOTE: This solution-level checklist supplements the canonical deployment guide located at `docs/deployment.md`. For end-to-end deployment and environment setup, use `docs/deployment.md` as the primary reference.
+For local pre-publish validation command order and generated evidence artifacts, see `Verification/README.md`.
 
 **Solution Name**: S3 to Sentinel Data Connector  
-**Version**: 1.0.0  
-**Date**: 2025-12-26  
+**Version**: 1.0.1  
+**Date**: 2026-02-27  
 **Archetype**: DATA_CONNECTOR (Function App + DCR)
 
 ---
@@ -136,6 +137,7 @@ NOTE: This solution-level checklist supplements the canonical deployment guide l
 |------|-----------------|--------|
 | Metadata.json | Name, Author, Description, Version | ✅ Complete |
 | Package.json | Name, DisplayName, contentTypes, artifacts | ✅ Complete |
+| ReleaseNotes.md | Versioned release history | ✅ Complete |
 | README.md | Overview, Prerequisites, Deployment | ✅ Complete |
 
 ---
@@ -146,6 +148,7 @@ NOTE: This solution-level checklist supplements the canonical deployment guide l
 Solutions/S3SentinelConnector/
 ├── Metadata.json                    ✅
 ├── Package.json                     ✅
+├── ReleaseNotes.md                  ✅
 ├── README.md                        ✅
 ├── Post-Deployment.md               ✅
 ├── Data Connectors/
@@ -154,6 +157,11 @@ Solutions/S3SentinelConnector/
 │       ├── function.json            ✅
 │       ├── host.json                ✅
 │       └── requirements.txt         ✅
+├── Workbooks/
+│   ├── S3SentinelConnector_OperationalOverview.json          ✅
+│   └── S3SentinelConnector_OperationalOverview.metadata.json ✅
+├── Analytic Rules/
+│   └── S3SentinelConnector_HighVolumeFirewallDenies.yaml     ✅
 ├── TemplateSpecs/
 │   ├── mainTemplate.json            ✅
 │   └── createUiDefinition.json      ✅
@@ -226,4 +234,14 @@ python Verification/Simulate_Ingest.py \
   --dcr-rule-id "dcr-<immutable-id>" \
   --stream-name "Custom-Custom_Firewall_CL" \
   --validate-only
+```
+
+### Local Package Validation
+```bash
+python Verification/Validate_Package_Local.py
+```
+
+### One-Command Local Readiness
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Verification\Run_Local_Readiness.ps1
 ```

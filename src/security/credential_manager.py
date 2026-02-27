@@ -1,4 +1,5 @@
 # src/security/credential_manager.py
+"""Key Vault-backed credential retrieval, caching, and rotation support."""
 
 import asyncio
 import logging
@@ -24,6 +25,8 @@ from ..utils.error_handling import RetryableError
 
 
 class CredentialManager:
+    """Manages secure credential access with resilience and optional encryption."""
+
     def __init__(
         self,
         vault_url: str,
@@ -156,13 +159,13 @@ class CredentialManager:
                     return cached
                 # No cache available, re-raise
                 raise
-            except asyncio.TimeoutError:
+            except asyncio.TimeoutError as e:
                 # Phase 4 (Resilience): Timeout, mark as retryable
                 self.logger.error(
                     f"Key Vault timeout for credential '{credential_name}' "
                     f"(timeout: {self._circuit_breaker.config.operation_timeout}s)"
                 )
-                raise RetryableError(f"Key Vault timeout for {credential_name}")
+                raise RetryableError(f"Key Vault timeout for {credential_name}") from e
 
             # Update cache (Phase 6: Reduce Key Vault load)
             await self._ensure_encryption()
@@ -276,12 +279,12 @@ class CredentialManager:
                 f"Key Vault circuit breaker open during rotation of '{credential_name}': {e}"
             )
             raise
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as e:
             # Phase 4 (Resilience): Timeout during rotation
             self.logger.error(
                 f"Key Vault timeout during rotation of '{credential_name}'"
             )
-            raise RetryableError(f"Key Vault timeout rotating {credential_name}")
+            raise RetryableError(f"Key Vault timeout rotating {credential_name}") from e
         except Exception as e:
             self.logger.error(
                 "Failed to rotate credential %s: %s",

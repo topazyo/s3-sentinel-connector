@@ -172,6 +172,16 @@ class TestJsonDepthLimits:
 
         assert "nesting depth exceeds maximum" in str(exc_info.value)
 
+    def test_measure_depth_short_circuits_after_limit(self):
+        """Phase 6 (Performance): Depth scan can stop once limit is exceeded."""
+        parser = JsonLogParser(max_depth=3)
+
+        nested = {"a": {"b": {"c": {"d": "too_deep"}}}}
+
+        measured = parser._measure_depth(nested, max_depth=3)
+
+        assert measured > 3
+
 
 class TestCombinedLimits:
     """Test combined size and depth scenarios."""

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json",
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# AWS S3 to Sentinel Connector - Operational Overview\n\nThis workbook provides a quick operational view of firewall and VPN log ingestion for the S3 Sentinel Connector solution."
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timespan",
+            "version": "KqlParameterItem/1.0",
+            "name": "Time Range",
+            "type": 4,
+            "isRequired": true,
+            "value": {
+              "durationMs": 86400000
+            },
+            "typeSettings": {
+              "selectableValues": [
+                {
+                  "durationMs": 3600000
+                },
+                {
+                  "durationMs": 21600000
+                },
+                {
+                  "durationMs": 43200000
+                },
+                {
+                  "durationMs": 86400000
+                },
+                {
+                  "durationMs": 604800000
+                }
+              ]
+            }
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      }
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Ingestion Volume (Firewall + VPN)"
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "union isfuzzy=true Custom_Firewall_CL, Custom_VPN_CL\n| where TimeGenerated >= ago(24h)\n| summarize Events=count() by TableName=$table, bin(TimeGenerated, 1h)\n| order by TimeGenerated asc",
+        "size": 0,
+        "title": "Ingestion by Table (Hourly)",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "timechart"
+      }
+    },
+    {
+      "type": 1,
+      "content": {
+        "json": "## Top Source IPs (Firewall Denies)"
+      }
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "Custom_Firewall_CL\n| where TimeGenerated > ago(24h)\n| where tolower(Action) in ('deny', 'drop')\n| summarize DeniedEvents=count() by SourceIP\n| top 20 by DeniedEvents desc",
+        "size": 0,
+        "title": "Top Denied Source IPs",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      }
+    }
+  ],
+  "isLocked": false,
+  "fallbackResourceIds": [
+    "Azure Monitor"
+  ],
+  "fromTemplateId": "s3-sentinel-connector-operational-overview",
+  "$fallbackResourceIds": [
+    "Azure Monitor"
+  ]
+}

@@ -1,4 +1,5 @@
 # src/utils/transformations.py
+"""Data transformation helpers for schema normalization and type coercion."""
 
 import json
 from datetime import datetime
@@ -6,6 +7,8 @@ from typing import Any, Dict, List
 
 
 class DataTransformer:
+    """Applies configured field-level transformations to parsed records."""
+
     def __init__(self) -> None:
         """Initialize data transformer"""
         self._initialize_transformers()
@@ -62,7 +65,9 @@ class DataTransformer:
 
                 except Exception as e:
                     if transform_config.get("required", False):
-                        raise ValueError(f"Failed to transform field {field}: {e!s}") from e
+                        raise ValueError(
+                            f"Failed to transform field {field}: {e!s}"
+                        ) from e
                     continue
 
         return result

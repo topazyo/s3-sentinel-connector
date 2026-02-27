@@ -1,4 +1,5 @@
 # src/security/access_control.py
+"""JWT authentication and RBAC authorization controls for secure pipeline operations."""
 
 import logging
 import time

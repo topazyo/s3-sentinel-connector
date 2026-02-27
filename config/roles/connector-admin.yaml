@@ -1,0 +1,11 @@
+name: connector-admin
+description: Administrative access for S3 Sentinel Connector operations
+permissions:
+  - monitor:read
+  - monitor:write
+  - metrics:read
+  - metrics:write
+  - credential:rotate
+  - config:update
+  - failed_batches:read
+  - failed_batches:reprocess

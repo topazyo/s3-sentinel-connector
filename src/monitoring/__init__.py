@@ -1,4 +1,5 @@
 # src/monitoring/__init__.py
+"""Monitoring package composition and lifecycle management helpers."""
 
 import asyncio
 import logging
@@ -17,7 +18,7 @@ try:
 except ImportError:  # pragma: no cover - fail on use
     AlertManager = None  # type: ignore
 
-__all__ = ["MonitoringManager", "PipelineMonitor", "ComponentMetrics", "AlertManager"]
+__all__ = ["AlertManager", "ComponentMetrics", "MonitoringManager", "PipelineMonitor"]
 
 
 class MonitoringManager:
@@ -177,7 +178,28 @@ class MonitoringManager:
 
     async def cleanup(self):
         """Cleanup monitoring resources"""
-        for task in self.tasks:
-            task.cancel()
+        if not self.tasks:
+            self._monitoring_started = False
+            return
 
-        await asyncio.gather(*self.tasks, return_exceptions=True)
+        pending_tasks = []
+        for task in self.tasks:
+            try:
+                task.cancel()
+            except Exception:
+                continue
+
+            try:
+                if task.done():
+                    continue
+            except Exception:
+                pass
+
+            if asyncio.isfuture(task) or asyncio.iscoroutine(task):
+                pending_tasks.append(task)
+
+        if pending_tasks:
+            await asyncio.gather(*pending_tasks, return_exceptions=True)
+
+        self.tasks = []
+        self._monitoring_started = False

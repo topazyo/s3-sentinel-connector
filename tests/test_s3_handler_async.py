@@ -62,6 +62,9 @@ def fake_boto3(monkeypatch):
     objects = {
         "logs/firewall/a.json": b'{"a":1}',
         "logs/firewall/b.json": b'{"b":2}',
+        "logs/firewall/c.json": b'{"c":3}',
+        "logs/firewall/d.json": b'{"d":4}',
+        "logs/firewall/e.json": b'{"e":5}',
     }
 
     def _fake_client(*args, **kwargs):
@@ -75,7 +78,7 @@ def fake_boto3(monkeypatch):
 async def test_list_objects_filters_prefix(fake_boto3):
     handler = S3Handler("k", "s", "us-east-1", max_threads=2)
     objs = await handler.list_objects_async("bucket", prefix="logs/firewall")
-    assert len(objs) == 2
+    assert len(objs) == 5
     assert all(o["Key"].startswith("logs/firewall") for o in objs)
 
 
@@ -93,7 +96,25 @@ async def test_process_files_batch_parses_and_validates(fake_boto3):
         "bucket", objs, parser=_DummyParser(), callback=_cb, log_type="firewall"
     )
 
-    assert len(results["successful"]) == 2
+    assert len(results["successful"]) == 5
     assert not results["failed"]
-    assert len(parsed) == 2
+    assert len(parsed) == 5
     assert parsed[0] == {"a": 1} or parsed[0] == {"b": 2}
+
+
+@pytest.mark.asyncio
+async def test_process_files_batch_async_respects_override_batch_size(fake_boto3):
+    handler = S3Handler("k", "s", "us-east-1", batch_size=2, max_threads=2)
+    objs = await handler.list_objects_async("bucket", prefix="logs/firewall")
+
+    callback_batch_sizes = []
+
+    async def _cb(batch, log_type=None):
+        callback_batch_sizes.append(len(batch))
+
+    results = await handler.process_files_batch_async(
+        "bucket", objs, parser=_DummyParser(), callback=_cb, batch_size=3
+    )
+
+    assert len(results["successful"]) == 5
+    assert callback_batch_sizes == [3, 2]

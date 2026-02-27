@@ -1,3 +1,5 @@
+# DEPRECATED TEMPLATE: This workflow is not active in GitHub Actions.
+# Use the root workflow at .github/workflows/ci.yml.
 # .github/workflows/ci.yml
 
 name: CI Pipeline

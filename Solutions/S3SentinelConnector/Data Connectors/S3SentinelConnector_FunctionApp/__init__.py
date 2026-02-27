@@ -31,19 +31,19 @@ class S3SentinelConnector:
     def __init__(self):
         """Initialize the connector with configuration from environment variables"""
         # Load configuration
-        self.key_vault_url = os.environ.get('KEY_VAULT_URL')
-        self.aws_region = os.environ.get('AWS_REGION', 'us-west-2')
-        self.s3_bucket = os.environ.get('S3_BUCKET_NAME')
-        self.s3_prefix = os.environ.get('S3_PREFIX', 'logs/')
-        self.batch_size = int(os.environ.get('BATCH_SIZE', '1000'))
-        self.log_type = os.environ.get('LOG_TYPE', 'firewall')
-        self.dcr_endpoint = os.environ.get('DCR_ENDPOINT')
-        self.dcr_rule_id = os.environ.get('DCR_RULE_ID')
-        self.dcr_stream_name = os.environ.get('DCR_STREAM_NAME')
+        self.key_vault_url = os.environ.get("KEY_VAULT_URL")
+        self.aws_region = os.environ.get("AWS_REGION", "us-west-2")
+        self.s3_bucket = os.environ.get("S3_BUCKET_NAME")
+        self.s3_prefix = os.environ.get("S3_PREFIX", "logs/")
+        self.batch_size = int(os.environ.get("BATCH_SIZE", "1000"))
+        self.log_type = os.environ.get("LOG_TYPE", "firewall")
+        self.dcr_endpoint = os.environ.get("DCR_ENDPOINT")
+        self.dcr_rule_id = os.environ.get("DCR_RULE_ID")
+        self.dcr_stream_name = os.environ.get("DCR_STREAM_NAME")
 
         # State tracking
         self.last_processed_key = None
-        self._state_blob_name = 'connector-state.json'
+        self._state_blob_name = "connector-state.json"
 
         # Initialize clients
         self._init_azure_clients()
@@ -54,10 +54,10 @@ class S3SentinelConnector:
 
         # Metrics
         self.metrics = {
-            'files_processed': 0,
-            'records_ingested': 0,
-            'bytes_processed': 0,
-            'errors': 0
+            "files_processed": 0,
+            "records_ingested": 0,
+            "bytes_processed": 0,
+            "errors": 0,
         }
 
     def _init_azure_clients(self):
@@ -74,8 +74,7 @@ class S3SentinelConnector:
             # Initialize Key Vault client
             if self.key_vault_url:
                 self.kv_client = SecretClient(
-                    vault_url=self.key_vault_url,
-                    credential=credential
+                    vault_url=self.key_vault_url, credential=credential
                 )
             else:
                 self.kv_client = None
@@ -92,9 +91,7 @@ class S3SentinelConnector:
                 raise ValueError("DCR_STREAM_NAME environment variable is required")
 
             self.logs_client = LogsIngestionClient(
-                endpoint=self.dcr_endpoint,
-                credential=credential,
-                logging_enable=True
+                endpoint=self.dcr_endpoint, credential=credential, logging_enable=True
             )
 
             logger.info("Azure clients initialized successfully")
@@ -108,24 +105,24 @@ class S3SentinelConnector:
         try:
             # Get credentials from Key Vault
             if self.kv_client:
-                aws_access_key = self.kv_client.get_secret('aws-access-key-id').value
-                aws_secret_key = self.kv_client.get_secret('aws-secret-access-key').value
+                aws_access_key = self.kv_client.get_secret("aws-access-key-id").value
+                aws_secret_key = self.kv_client.get_secret(
+                    "aws-secret-access-key"
+                ).value
             else:
                 # Fall back to environment variables for local testing
-                aws_access_key = os.environ.get('AWS_ACCESS_KEY_ID')
-                aws_secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
+                aws_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+                aws_secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
 
             # Initialize S3 client
             self.s3_client = boto3.client(
-                's3',
+                "s3",
                 aws_access_key_id=aws_access_key,
                 aws_secret_access_key=aws_secret_key,
                 region_name=self.aws_region,
                 config=BotoConfig(
-                    retries={'max_attempts': 3},
-                    connect_timeout=10,
-                    read_timeout=30
-                )
+                    retries={"max_attempts": 3}, connect_timeout=10, read_timeout=30
+                ),
             )
 
             logger.info(f"AWS S3 client initialized for region {self.aws_region}")
@@ -137,93 +134,112 @@ class S3SentinelConnector:
     def _load_table_configs(self) -> Dict[str, Dict[str, Any]]:
         """Load table configuration for different log types"""
         return {
-            'firewall': {
-                'table_name': 'Custom_Firewall_CL',
-                'required_fields': ['TimeGenerated', 'SourceIP', 'DestinationIP', 'Action'],
-                'transform_map': {
-                    'src_ip': 'SourceIP',
-                    'dst_ip': 'DestinationIP',
-                    'action': 'Action',
-                    'proto': 'Protocol',
-                    'src_port': 'SourcePort',
-                    'dst_port': 'DestinationPort',
-                    'bytes': 'BytesTransferred',
-                    'rule': 'RuleName'
+            "firewall": {
+                "table_name": "Custom_Firewall_CL",
+                "required_fields": [
+                    "TimeGenerated",
+                    "SourceIP",
+                    "DestinationIP",
+                    "Action",
+                ],
+                "transform_map": {
+                    "src_ip": "SourceIP",
+                    "dst_ip": "DestinationIP",
+                    "action": "Action",
+                    "proto": "Protocol",
+                    "src_port": "SourcePort",
+                    "dst_port": "DestinationPort",
+                    "bytes": "BytesTransferred",
+                    "rule": "RuleName",
                 },
-                'timestamp_formats': [
-                    '%Y-%m-%dT%H:%M:%S.%fZ',
-                    '%Y-%m-%dT%H:%M:%SZ',
-                    '%Y-%m-%d %H:%M:%S',
-                    '%b %d %Y %H:%M:%S'
-                ]
+                "timestamp_formats": [
+                    "%Y-%m-%dT%H:%M:%S.%fZ",
+                    "%Y-%m-%dT%H:%M:%SZ",
+                    "%Y-%m-%d %H:%M:%S",
+                    "%b %d %Y %H:%M:%S",
+                ],
             },
-            'vpn': {
-                'table_name': 'Custom_VPN_CL',
-                'required_fields': ['TimeGenerated', 'UserPrincipalName', 'SessionID', 'ClientIP'],
-                'transform_map': {
-                    'user': 'UserPrincipalName',
-                    'session': 'SessionID',
-                    'ip_address': 'ClientIP',
-                    'bytes_in': 'BytesIn',
-                    'bytes_out': 'BytesOut',
-                    'duration': 'ConnectionDuration'
+            "vpn": {
+                "table_name": "Custom_VPN_CL",
+                "required_fields": [
+                    "TimeGenerated",
+                    "UserPrincipalName",
+                    "SessionID",
+                    "ClientIP",
+                ],
+                "transform_map": {
+                    "user": "UserPrincipalName",
+                    "session": "SessionID",
+                    "ip_address": "ClientIP",
+                    "bytes_in": "BytesIn",
+                    "bytes_out": "BytesOut",
+                    "duration": "ConnectionDuration",
                 },
-                'timestamp_formats': [
-                    '%Y-%m-%dT%H:%M:%S.%fZ',
-                    '%Y-%m-%dT%H:%M:%SZ',
-                    '%Y-%m-%d %H:%M:%S'
-                ]
-            }
+                "timestamp_formats": [
+                    "%Y-%m-%dT%H:%M:%S.%fZ",
+                    "%Y-%m-%dT%H:%M:%SZ",
+                    "%Y-%m-%d %H:%M:%S",
+                ],
+            },
         }
 
-    def list_new_objects(self, last_modified_after: Optional[datetime] = None) -> List[Dict[str, Any]]:
+    def list_new_objects(
+        self, last_modified_after: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
         """List S3 objects newer than the specified timestamp"""
         objects = []
 
         try:
-            paginator = self.s3_client.get_paginator('list_objects_v2')
+            paginator = self.s3_client.get_paginator("list_objects_v2")
             page_iterator = paginator.paginate(
                 Bucket=self.s3_bucket,
                 Prefix=self.s3_prefix,
-                PaginationConfig={'MaxItems': 1000}
+                PaginationConfig={"MaxItems": 1000},
             )
 
             for page in page_iterator:
-                if 'Contents' not in page:
+                if "Contents" not in page:
                     continue
 
-                for obj in page['Contents']:
+                for obj in page["Contents"]:
                     # Skip if older than last processed
-                    if last_modified_after and obj['LastModified'] <= last_modified_after:
+                    if (
+                        last_modified_after
+                        and obj["LastModified"] <= last_modified_after
+                    ):
                         continue
 
                     # Skip empty files and invalid extensions
-                    if obj['Size'] == 0:
+                    if obj["Size"] == 0:
                         continue
 
-                    key = obj['Key']
+                    key = obj["Key"]
                     if not self._is_valid_file(key):
                         continue
 
-                    objects.append({
-                        'Key': key,
-                        'Size': obj['Size'],
-                        'LastModified': obj['LastModified'],
-                        'ETag': obj['ETag']
-                    })
+                    objects.append(
+                        {
+                            "Key": key,
+                            "Size": obj["Size"],
+                            "LastModified": obj["LastModified"],
+                            "ETag": obj["ETag"],
+                        }
+                    )
 
-            logger.info(f"Found {len(objects)} new objects in s3://{self.s3_bucket}/{self.s3_prefix}")
+            logger.info(
+                f"Found {len(objects)} new objects in s3://{self.s3_bucket}/{self.s3_prefix}"
+            )
             return objects
 
         except ClientError as e:
             logger.error(f"Failed to list S3 objects: {e}")
-            self.metrics['errors'] += 1
+            self.metrics["errors"] += 1
             raise
 
     def _is_valid_file(self, key: str) -> bool:
         """Check if file should be processed based on extension and patterns"""
-        valid_extensions = ['.log', '.json', '.gz', '.csv', '.txt']
-        excluded_patterns = ['temp', 'partial', 'incomplete', '_tmp']
+        valid_extensions = [".log", ".json", ".gz", ".csv", ".txt"]
+        excluded_patterns = ["temp", "partial", "incomplete", "_tmp"]
 
         # Check extension
         if not any(key.lower().endswith(ext) for ext in valid_extensions):
@@ -237,48 +253,45 @@ class S3SentinelConnector:
 
     def download_and_parse(self, obj: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Download an S3 object and parse its contents"""
-        key = obj['Key']
+        key = obj["Key"]
 
         try:
             # Download object
-            response = self.s3_client.get_object(
-                Bucket=self.s3_bucket,
-                Key=key
-            )
-            content = response['Body'].read()
+            response = self.s3_client.get_object(Bucket=self.s3_bucket, Key=key)
+            content = response["Body"].read()
 
             # Decompress if needed
-            if key.endswith('.gz'):
+            if key.endswith(".gz"):
                 content = gzip.decompress(content)
 
             # Decode
-            text_content = content.decode('utf-8', errors='replace')
+            text_content = content.decode("utf-8", errors="replace")
 
             # Parse based on file type
-            if key.endswith('.json') or key.endswith('.json.gz'):
+            if key.endswith(".json") or key.endswith(".json.gz"):
                 records = self._parse_json(text_content)
             else:
                 records = self._parse_delimited(text_content)
 
-            self.metrics['files_processed'] += 1
-            self.metrics['bytes_processed'] += obj['Size']
+            self.metrics["files_processed"] += 1
+            self.metrics["bytes_processed"] += obj["Size"]
 
             return records
 
         except ClientError as e:
             logger.error(f"Failed to download {key}: {e}")
-            self.metrics['errors'] += 1
+            self.metrics["errors"] += 1
             return []
         except Exception as e:
             logger.error(f"Failed to parse {key}: {e}")
-            self.metrics['errors'] += 1
+            self.metrics["errors"] += 1
             return []
 
     def _parse_json(self, content: str) -> List[Dict[str, Any]]:
         """Parse JSON log content"""
         records = []
         config = self.table_configs.get(self.log_type, {})
-        transform_map = config.get('transform_map', {})
+        transform_map = config.get("transform_map", {})
 
         try:
             # Try parsing as JSON array first
@@ -295,7 +308,7 @@ class S3SentinelConnector:
 
         except json.JSONDecodeError:
             # Try NDJSON (newline-delimited JSON)
-            for line in content.strip().split('\n'):
+            for line in content.strip().split("\n"):
                 if not line.strip():
                     continue
                 try:
@@ -312,19 +325,19 @@ class S3SentinelConnector:
         """Parse pipe or comma-delimited log content"""
         records = []
         config = self.table_configs.get(self.log_type, {})
-        transform_map = config.get('transform_map', {})
+        transform_map = config.get("transform_map", {})
 
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
 
         for line in lines:
             if not line.strip():
                 continue
 
             # Detect delimiter
-            if '|' in line:
-                fields = line.split('|')
-            elif ',' in line:
-                fields = line.split(',')
+            if "|" in line:
+                fields = line.split("|")
+            elif "," in line:
+                fields = line.split(",")
             else:
                 fields = line.split()
 
@@ -342,9 +355,12 @@ class S3SentinelConnector:
 
         return records
 
-    def _transform_record(self, item: Dict[str, Any],
-                         transform_map: Dict[str, str],
-                         config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _transform_record(
+        self,
+        item: Dict[str, Any],
+        transform_map: Dict[str, str],
+        config: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
         """Transform a source record to Sentinel schema"""
         record = {}
 
@@ -359,28 +375,27 @@ class S3SentinelConnector:
                 record.setdefault(key, value)
 
         # Ensure TimeGenerated exists
-        if 'TimeGenerated' not in record:
+        if "TimeGenerated" not in record:
             # Try to find a timestamp field
-            for ts_field in ['timestamp', 'time', 'datetime', 'event_time']:
+            for ts_field in ["timestamp", "time", "datetime", "event_time"]:
                 if ts_field in item:
-                    record['TimeGenerated'] = self._parse_timestamp(
-                        item[ts_field],
-                        config.get('timestamp_formats', [])
+                    record["TimeGenerated"] = self._parse_timestamp(
+                        item[ts_field], config.get("timestamp_formats", [])
                     )
                     break
             else:
                 # Use current time if no timestamp found
-                record['TimeGenerated'] = datetime.now(timezone.utc).isoformat()
+                record["TimeGenerated"] = datetime.now(timezone.utc).isoformat()
 
         # Validate required fields
-        required = config.get('required_fields', [])
+        required = config.get("required_fields", [])
         for field in required:
             if field not in record or record[field] is None:
                 return None
 
         # Add metadata
-        record['SchemaVersion'] = '1.0'
-        record['DataClassification'] = 'standard'
+        record["SchemaVersion"] = "1.0"
+        record["DataClassification"] = "standard"
 
         return record
 
@@ -407,20 +422,22 @@ class S3SentinelConnector:
             return 0
 
         if not self.dcr_rule_id or not self.dcr_stream_name:
-            raise ValueError("DCR rule_id and stream_name must be configured for ingestion")
+            raise ValueError(
+                "DCR rule_id and stream_name must be configured for ingestion"
+            )
 
         ingested = 0
 
         # Process in batches
         for i in range(0, len(records), self.batch_size):
-            batch = records[i:i + self.batch_size]
+            batch = records[i : i + self.batch_size]
 
             try:
                 # Cast to List[Any] to satisfy the logs parameter type requirement
                 self.logs_client.upload(
                     rule_id=self.dcr_rule_id,
                     stream_name=self.dcr_stream_name,
-                    logs=cast(List[Any], batch)
+                    logs=cast(List[Any], batch),
                 )
 
                 ingested += len(batch)
@@ -428,16 +445,16 @@ class S3SentinelConnector:
 
             except AzureError as e:
                 logger.error(f"Failed to ingest batch: {e}")
-                self.metrics['errors'] += 1
+                self.metrics["errors"] += 1
                 # Store failed batch for retry
                 self._store_failed_batch(batch, str(e))
 
-        self.metrics['records_ingested'] += ingested
+        self.metrics["records_ingested"] += ingested
         return ingested
 
     def _store_failed_batch(self, batch: List[Dict[str, Any]], error: str):
         """Store failed batch for later retry"""
-        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         filename = f"failed_batch_{timestamp}.json"
 
         logger.warning(f"Storing failed batch: {filename} ({len(batch)} records)")
@@ -455,9 +472,9 @@ class S3SentinelConnector:
             if not objects:
                 logger.info("No new objects to process")
                 return {
-                    'status': 'success',
-                    'message': 'No new objects',
-                    'metrics': self.metrics
+                    "status": "success",
+                    "message": "No new objects",
+                    "metrics": self.metrics,
                 }
 
             # Process each object
@@ -478,18 +495,14 @@ class S3SentinelConnector:
             duration = (datetime.now(timezone.utc) - start_time).total_seconds()
 
             return {
-                'status': 'success',
-                'duration_seconds': duration,
-                'metrics': self.metrics
+                "status": "success",
+                "duration_seconds": duration,
+                "metrics": self.metrics,
             }
 
         except Exception as e:
             logger.exception(f"Connector run failed: {e}")
-            return {
-                'status': 'error',
-                'error': str(e),
-                'metrics': self.metrics
-            }
+            return {"status": "error", "error": str(e), "metrics": self.metrics}
 
 
 # Global connector instance (reused across invocations)
@@ -503,9 +516,9 @@ def main(timer: func.TimerRequest) -> None:
     utc_timestamp = datetime.now(timezone.utc).isoformat()
 
     if timer.past_due:
-        logger.warning('Timer trigger is running late!')
+        logger.warning("Timer trigger is running late!")
 
-    logger.info(f'S3 Sentinel Connector started at {utc_timestamp}')
+    logger.info(f"S3 Sentinel Connector started at {utc_timestamp}")
 
     try:
         # Initialize connector on first run

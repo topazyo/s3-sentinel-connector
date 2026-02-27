@@ -21,6 +21,8 @@ The **S3 to Sentinel Data Connector** enables secure, high-performance ingestion
 | **Batch Processing** | Configurable batch sizes for optimal throughput and cost efficiency |
 | **Compression Support** | Handles gzip-compressed log files automatically |
 | **Monitoring & Alerting** | Prometheus metrics, Azure Application Insights, and custom alerts |
+| **Workbook Dashboard** | Includes an operational workbook for ingestion trends and deny-activity visibility |
+| **Analytics Rule Template** | Includes a scheduled detection for high-volume firewall deny activity |
 | **ML-Powered Anomaly Detection** | Optional TensorFlow-based anomaly detection for log analysis |
 
 ## Architecture

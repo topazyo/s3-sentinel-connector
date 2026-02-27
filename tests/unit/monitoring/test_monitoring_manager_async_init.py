@@ -9,58 +9,10 @@ Phase 7 (Testing): Comprehensive coverage of lifecycle management
 """
 
 import asyncio
-from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from src.monitoring import MonitoringManager
-
-
-@pytest.fixture
-def mock_monitoring_config():
-    """Mock monitoring configuration"""
-    return {
-        "app_name": "test-app",
-        "environment": "test",
-        "components": ["s3_handler", "sentinel_router"],
-        "metrics": {"endpoint": "http://localhost:9090"},
-        "alerts": [{"name": "high_error_rate", "threshold": 0.1}],
-    }
-
-
-@pytest.fixture
-def mock_monitoring_components():
-    """Mock monitoring component classes"""
-    with (
-        patch("src.monitoring.ComponentMetrics") as mock_metrics,
-        patch("src.monitoring.AlertManager") as mock_alerts,
-        patch("src.monitoring.PipelineMonitor") as mock_pipeline,
-    ):
-
-        # Mock PipelineMonitor
-        mock_pipeline_instance = AsyncMock()
-        mock_pipeline_instance._health_check_loop = AsyncMock()
-        mock_pipeline_instance._metrics_export_loop = AsyncMock()
-        mock_pipeline_instance.record_metric = AsyncMock()
-        mock_pipeline.return_value = mock_pipeline_instance
-
-        # Mock AlertManager
-        mock_alerts_instance = AsyncMock()
-        mock_alerts_instance._alert_check_loop = AsyncMock()
-        mock_alerts.return_value = mock_alerts_instance
-
-        # Mock ComponentMetrics
-        mock_metrics_instance = Mock()
-        mock_metrics_instance.record_metric = Mock()
-        mock_metrics.return_value = mock_metrics_instance
-
-        yield {
-            "pipeline": mock_pipeline,
-            "alerts": mock_alerts,
-            "metrics": mock_metrics,
-            "pipeline_instance": mock_pipeline_instance,
-            "alerts_instance": mock_alerts_instance,
-        }
 
 
 class TestMonitoringManagerInitialization:

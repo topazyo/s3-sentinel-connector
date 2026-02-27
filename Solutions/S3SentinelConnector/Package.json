@@ -8,9 +8,11 @@
   "UiDefinitionUri": "https://raw.githubusercontent.com/Azure/Azure-Sentinel/master/Solutions/S3SentinelConnector/TemplateSpecs/createUiDefinition.json",
   "TemplateUri": "https://raw.githubusercontent.com/Azure/Azure-Sentinel/master/Solutions/S3SentinelConnector/TemplateSpecs/mainTemplate.json",
   "FirstPublishDate": "2025-12-26",
-  "LastPublishDate": "2025-12-26",
+  "LastPublishDate": "2026-02-27",
   "contentTypes": [
-    "DataConnector"
+    "DataConnector",
+    "Workbook",
+    "AnalyticsRule"
   ],
   "categories": {
     "domains": [
@@ -25,8 +27,13 @@
     "link": "https://support.microsoft.com/"
   },
   "metadata": {
-    "version": "1.0.0",
+    "version": "1.0.1",
     "releaseNotes": [
+      {
+        "version": "1.0.1",
+        "title": "Content Hub artifact packaging update",
+        "notes": "Added Workbook and AnalyticsRule artifacts, updated solution packaging metadata, and completed critical ARM template reliability fixes for Content Hub publishability readiness."
+      },
       {
         "version": "1.0.0",
         "title": "Initial Release",
@@ -49,6 +56,22 @@
       "source": {
         "kind": "LocalPath",
         "path": "Data Connectors/"
+      }
+    },
+    {
+      "type": "Workbook",
+      "name": "S3SentinelConnector_OperationalOverview",
+      "source": {
+        "kind": "LocalPath",
+        "path": "Workbooks/"
+      }
+    },
+    {
+      "type": "AnalyticsRule",
+      "name": "S3SentinelConnector_HighVolumeFirewallDenies",
+      "source": {
+        "kind": "LocalPath",
+        "path": "Analytic Rules/"
       }
     }
   ],

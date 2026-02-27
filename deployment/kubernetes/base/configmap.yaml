@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: connector-config
+  labels:
+    app: s3-sentinel-connector
+data:
+  environment: dev
+  log_level: INFO
+  metrics_interval: "60"
+  batch_size: "1000"

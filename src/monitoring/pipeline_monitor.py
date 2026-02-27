@@ -1,8 +1,10 @@
 # src/monitoring/pipeline_monitor.py
+"""Pipeline-wide monitoring, alerting, and metric export orchestration."""
 
 import asyncio
 import json
 import logging
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -35,6 +37,8 @@ class AlertConfig:
 
 
 class PipelineMonitor:
+    """Tracks health, alerts, and metric publication for pipeline operations."""
+
     def __init__(
         self,
         metrics_endpoint: str,
@@ -47,6 +51,7 @@ class PipelineMonitor:
         slack_webhook: Optional[str] = None,
         health_timeout: float = 5.0,
         enable_background_tasks: bool = False,
+        max_alert_history: int = 1000,
     ) -> None:
         """
         Initialize pipeline monitoring system
@@ -57,6 +62,7 @@ class PipelineMonitor:
             environment: Deployment environment
             alert_configs: List of alert configurations
             enable_background_tasks: If True, start background tasks immediately (requires event loop)
+            max_alert_history: Maximum number of alert records retained in memory
         """
         self.app_name = app_name
         self.environment = environment
@@ -67,6 +73,7 @@ class PipelineMonitor:
         self.slack_webhook = slack_webhook
         self.health_timeout = health_timeout
         self.enable_background_tasks = enable_background_tasks
+        self.max_alert_history = max(1, max_alert_history)
         self._registry = prom.CollectorRegistry()
 
         # Initialize logger
@@ -82,7 +89,8 @@ class PipelineMonitor:
         self.component_health = {}
         self.last_check_times = {}
         self._metric_cache: Dict[str, Dict[str, Any]] = {}
-        self._active_alerts: List[Dict[str, Any]] = []
+        self._pending_metric_names: set[str] = set()
+        self._active_alerts = deque(maxlen=self.max_alert_history)
 
         # Tasks initialized empty, started via start() method
         self.tasks: List[asyncio.Task] = []
@@ -195,11 +203,12 @@ class PipelineMonitor:
         """
         try:
             timestamp = datetime.now(timezone.utc)
+            safe_labels = dict(labels) if labels else {}
             metric_data = {
                 "name": metric_name,
                 "value": value,
                 "timestamp": timestamp.isoformat(),
-                "labels": labels or {},
+                "labels": safe_labels,
                 "app": self.app_name,
                 "environment": self.environment,
             }
@@ -234,9 +243,11 @@ class PipelineMonitor:
 
             # Cache latest metric for alerting/export
             self._metric_cache[metric_name] = metric_data
+            self._pending_metric_names.add(metric_name)
 
             # Send to Azure Monitor asynchronously to avoid blocking
             await asyncio.to_thread(self.metrics_client.ingest_metrics, [metric_data])
+            self._pending_metric_names.discard(metric_name)
 
         except Exception as e:
             self.logger.error(f"Failed to record metric {metric_name}: {e!s}")
@@ -342,7 +353,7 @@ class PipelineMonitor:
         try:
             while True:
                 try:
-                    metrics = self._collect_current_metrics()
+                    metrics = self._collect_current_metrics(only_pending=True)
 
                     # Export to Azure Monitor
                     await self._export_to_azure_monitor(metrics)
@@ -624,8 +635,16 @@ class PipelineMonitor:
             "last_updated": datetime.now(timezone.utc).isoformat(),
         }
 
-    def _collect_current_metrics(self) -> List[Dict[str, Any]]:
+    def _collect_current_metrics(
+        self, only_pending: bool = False
+    ) -> List[Dict[str, Any]]:
         """Collect latest metric snapshots from the in-memory cache."""
+        if only_pending:
+            return [
+                self._metric_cache[name]
+                for name in list(self._pending_metric_names)
+                if name in self._metric_cache
+            ]
         return list(self._metric_cache.values())
 
     async def _export_to_azure_monitor(self, metrics: List[Dict[str, Any]]) -> None:
@@ -634,6 +653,10 @@ class PipelineMonitor:
             return
         try:
             await asyncio.to_thread(self.metrics_client.ingest_metrics, metrics)
+            for metric in metrics:
+                metric_name = metric.get("name")
+                if metric_name:
+                    self._pending_metric_names.discard(metric_name)
         except Exception as e:
             self.logger.error(f"Azure Monitor export failed: {e!s}")
 

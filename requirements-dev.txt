@@ -1,5 +1,6 @@
 black==24.10.0
-ruff==0.0.284
+ruff>=0.8.0,<1.0.0
 isort==5.12.0
-# Note: pytest is listed under test dependencies in requirements.txt (pytest>=9).
-# Avoid pinning a conflicting pytest version here to prevent resolver errors.
+mypy>=1.12.0,<2.0.0
+bandit>=1.7.10,<2.0.0
+pip-audit>=2.8.0,<3.0.0

@@ -1,7 +1,9 @@
 # src/core/s3_handler.py
+"""S3 ingestion handler with batching, retries, and rate-limited processing."""
 
 import asyncio
 import gzip
+import inspect
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -18,6 +20,8 @@ from .log_parser import LogParser
 
 
 class S3Handler:
+    """Handles S3 object listing, download, parsing, and batch processing workflows."""
+
     def __init__(
         self,
         aws_access_key: str,
@@ -214,6 +218,14 @@ class S3Handler:
 
         return True
 
+    def _iter_batches(self, items: List[Any], batch_size: int):
+        """Yield consecutive batches without materializing all chunks in memory."""
+        if batch_size <= 0:
+            raise ValueError("batch_size must be greater than 0")
+
+        for index in range(0, len(items), batch_size):
+            yield items[index : index + batch_size]
+
     def process_files_batch(
         self,
         bucket: str,
@@ -235,11 +247,7 @@ class S3Handler:
         if not objects:
             return results
 
-        chunks = [
-            objects[i : i + batch_size] for i in range(0, len(objects), batch_size)
-        ]
-
-        for chunk in chunks:
+        for chunk in self._iter_batches(objects, batch_size):
             parsed_batch: List[Any] = []
             for obj in chunk:
                 key = obj["Key"]
@@ -272,7 +280,7 @@ class S3Handler:
                     results["errors"].append({"key": key, "error": str(e)})
 
             if callback and parsed_batch:
-                if asyncio.iscoroutinefunction(callback):
+                if inspect.iscoroutinefunction(callback):
                     if log_type is not None:
                         asyncio.run(callback(parsed_batch, log_type))
                     else:
@@ -285,16 +293,18 @@ class S3Handler:
 
         return results
 
-    async def process_files_batch_async(
+    async def process_files_batch_async(  # noqa: C901 (complexity justified by comprehensive error handling)
         self,
         bucket: str,
         objects: List[Dict[str, Any]],
         parser: Optional[LogParser] = None,
         callback: Optional[callable] = None,
         log_type: Optional[str] = None,
+        batch_size: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Async variant of batch processing for compatibility with async callers."""
         loop = asyncio.get_running_loop()
+        batch_size = batch_size or self.batch_size
         results: Dict[str, Any] = {
             "successful": [],
             "failed": [],
@@ -315,12 +325,7 @@ class S3Handler:
             )
             return results
 
-        chunks = [
-            objects[i : i + self.batch_size]
-            for i in range(0, len(objects), self.batch_size)
-        ]
-
-        for chunk in chunks:
+        for chunk in self._iter_batches(objects, batch_size):
             tasks = []
             for obj in chunk:
                 tasks.append(
@@ -332,7 +337,7 @@ class S3Handler:
             downloaded = await asyncio.gather(*tasks, return_exceptions=True)
             parsed_batch: List[Any] = []
 
-            for obj, content in zip(chunk, downloaded):
+            for obj, content in zip(chunk, downloaded, strict=False):
                 key = obj["Key"]
                 if isinstance(content, Exception):
                     results["failed"].append({"key": key, "error": str(content)})
@@ -363,7 +368,7 @@ class S3Handler:
                     results["failed"].append({"key": key, "error": str(e)})
 
             if callback and parsed_batch:
-                if asyncio.iscoroutinefunction(callback):
+                if inspect.iscoroutinefunction(callback):
                     if log_type is not None:
                         await callback(parsed_batch, log_type)
                     else:
@@ -441,54 +446,6 @@ class S3Handler:
         return self._list_objects_internal(
             bucket, prefix, last_processed_time, max_keys
         )
-
-    def _list_objects_internal(
-        self,
-        bucket: str,
-        prefix: str,
-        last_processed_time: Optional[datetime],
-        max_keys: int,
-    ) -> List[Dict[str, Any]]:
-        """Internal list objects implementation (no rate limiting - applied by caller)."""
-        objects: List[Dict[str, Any]] = []
-        paginator = self.s3_client.get_paginator("list_objects_v2")
-
-        try:
-            page_iterator = paginator.paginate(
-                Bucket=bucket, Prefix=prefix, PaginationConfig={"MaxItems": max_keys}
-            )
-
-            for page in page_iterator:
-                if "Contents" not in page:
-                    continue
-
-                for obj in page["Contents"]:
-                    if (
-                        last_processed_time
-                        and obj["LastModified"] <= last_processed_time
-                    ):
-                        continue
-
-                    if obj["Size"] == 0 or not self._is_valid_file(obj["Key"]):
-                        continue
-
-                    objects.append(
-                        {
-                            "Key": obj["Key"],
-                            "Size": obj["Size"],
-                            "LastModified": obj["LastModified"],
-                            "ETag": obj["ETag"],
-                            "StorageClass": obj.get("StorageClass", "STANDARD"),
-                        }
-                    )
-
-            logging.info("Found %s new objects in %s/%s", len(objects), bucket, prefix)
-            return objects
-
-        except ClientError as e:
-            self._handle_aws_error(e)
-        except Exception:
-            raise
 
     def _validate_content(self, content: bytes, key: str) -> bool:
         """Basic content validation to ensure non-empty payloads."""

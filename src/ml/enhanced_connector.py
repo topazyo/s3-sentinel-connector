@@ -1,12 +1,13 @@
 # src/ml/enhanced_connector.py
+"""Optional ML enhancements for anomaly detection and enrichment in the ingestion pipeline."""
 
 import asyncio
 import hashlib
 import logging
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional
 
 import joblib
 import numpy as np
@@ -33,9 +34,13 @@ class MLConfig:
     model_path: str = "models"
     update_interval: int = 3600  # seconds
     cache_size: int = 10000
+    anomaly_history_limit: int = 1000
+    recent_feature_limit: int = 200
 
 
 class MLEnhancedConnector:
+    """Coordinates optional model loading, inference, and ML feature workflows."""
+
     def __init__(self, config: Optional[MLConfig] = None) -> None:
         """
         Initialize ML-enhanced connector
@@ -47,7 +52,12 @@ class MLEnhancedConnector:
             ImportError: If TensorFlow is required but not installed
         """
         self.config = config or MLConfig()
+        if self.config.feature_columns is None:
+            self.config.feature_columns = []
         self.logger = logging.getLogger(__name__)
+        self.tasks: List[asyncio.Task] = []
+        self._initialize_caches()
+        self._initialize_preprocessors()
 
         # Check TensorFlow availability
         if not TENSORFLOW_AVAILABLE:
@@ -59,20 +69,12 @@ class MLEnhancedConnector:
             self.anomaly_detector = None
             self.log_classifier = None
             self.feature_importance = None
-            self._initialize_preprocessors()
-            self._initialize_caches()
             return
 
         self.ml_enabled = True
 
         # Initialize ML components
         self._initialize_models()
-
-        # Initialize preprocessing components
-        self._initialize_preprocessors()
-
-        # Initialize caches
-        self._initialize_caches()
 
         # Start background tasks
         self.tasks = []
@@ -93,8 +95,15 @@ class MLEnhancedConnector:
             self.logger.info("Successfully initialized ML models")
 
         except Exception as e:
-            self.logger.error(f"Failed to initialize ML models: {e!s}")
-            raise
+            self.logger.warning(
+                "Failed to initialize ML models (%s). "
+                "Running in degraded ML mode.",
+                e,
+            )
+            self.ml_enabled = False
+            self.anomaly_detector = None
+            self.log_classifier = None
+            self.feature_importance = None
 
     def _initialize_preprocessors(self):
         """Initialize data preprocessors"""
@@ -113,15 +122,40 @@ class MLEnhancedConnector:
 
         except Exception as e:
             self.logger.error(f"Failed to initialize preprocessors: {e!s}")
-            raise
+            self.encoders = {}
+            self.feature_extractors = self._initialize_feature_extractors()
 
     def _initialize_caches(self):
         """Initialize caching systems"""
         self.prediction_cache = {}
         self.feature_cache = {}
         self.pattern_cache = defaultdict(int)
-        self.anomaly_history = []
-        self.recent_features = []  # For preprocessor updates
+        self.anomaly_history: Deque[Dict[str, Any]] = deque(
+            maxlen=self.config.anomaly_history_limit
+        )
+        self.recent_features: Deque[Any] = deque(
+            maxlen=self.config.recent_feature_limit
+        )  # For preprocessor updates
+
+    def _set_prediction_cache(self, cache_key: str, predictions: np.ndarray) -> None:
+        """Insert prediction into cache while enforcing bounded size."""
+        if cache_key in self.prediction_cache:
+            self.prediction_cache[cache_key] = predictions
+            return
+
+        while len(self.prediction_cache) >= self.config.cache_size:
+            oldest_key = next(iter(self.prediction_cache))
+            self.prediction_cache.pop(oldest_key, None)
+
+        self.prediction_cache[cache_key] = predictions
+
+    def _enforce_pattern_cache_limit(self) -> None:
+        """Trim least-frequent patterns to keep bounded memory usage."""
+        if len(self.pattern_cache) <= self.config.cache_size:
+            return
+
+        pattern_to_evict = min(self.pattern_cache, key=self.pattern_cache.get)
+        self.pattern_cache.pop(pattern_to_evict, None)
 
     def _load_model(self, model_name: str) -> Any:
         """Load ML model from disk"""
@@ -139,10 +173,19 @@ class MLEnhancedConnector:
 
     def _load_encoders(self) -> Dict[str, Any]:
         """Load feature encoders"""
-        return {
-            "categorical": joblib.load(f"{self.config.model_path}/categorical_encoder"),
-            "text": joblib.load(f"{self.config.model_path}/text_encoder"),
+        encoders = {}
+        encoder_paths = {
+            "categorical": f"{self.config.model_path}/categorical_encoder",
+            "text": f"{self.config.model_path}/text_encoder",
         }
+
+        for encoder_name, encoder_path in encoder_paths.items():
+            try:
+                encoders[encoder_name] = joblib.load(encoder_path)
+            except Exception:
+                self.logger.debug("Encoder not available: %s", encoder_name)
+
+        return encoders
 
     def _initialize_feature_extractors(self) -> Dict[str, callable]:
         """Initialize feature extraction functions"""
@@ -194,49 +237,81 @@ class MLEnhancedConnector:
 
     def _extract_features(self, logs: List[Dict[str, Any]]) -> pd.DataFrame:
         """Extract features from logs"""
-        features = {}
+        feature_rows: List[Dict[str, Any]] = [dict() for _ in logs]
 
         for extractor_name, extractor_func in self.feature_extractors.items():
             try:
-                features[extractor_name] = extractor_func(logs)
+                extracted = extractor_func(logs)
+                if not isinstance(extracted, list) or len(extracted) != len(logs):
+                    self.logger.warning(
+                        "Extractor %s returned incompatible shape", extractor_name
+                    )
+                    continue
+
+                for index, row in enumerate(extracted):
+                    if isinstance(row, dict):
+                        feature_rows[index].update(row)
             except Exception as e:
                 self.logger.error(
                     f"Feature extraction failed for {extractor_name}: {e!s}"
                 )
 
-        return pd.DataFrame(features)
+        if not feature_rows:
+            return pd.DataFrame()
 
-    def _extract_temporal_features(self, logs: List[Dict[str, Any]]) -> Dict[str, Any]:
+        return pd.DataFrame(feature_rows).fillna(0)
+
+    def _extract_temporal_features(self, logs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Extract temporal features"""
-        features = {}
-
+        feature_rows: List[Dict[str, Any]] = []
         for log in logs:
-            timestamp = pd.to_datetime(log["timestamp"])
-            features.update(
+            raw_timestamp = log.get("timestamp") or log.get("TimeGenerated")
+            timestamp = pd.to_datetime(raw_timestamp, errors="coerce", utc=True)
+            if pd.isna(timestamp):
+                timestamp = pd.Timestamp(datetime.now(timezone.utc))
+
+            feature_rows.append(
                 {
-                    "hour": timestamp.hour,
-                    "day_of_week": timestamp.dayofweek,
-                    "is_weekend": timestamp.dayofweek >= 5,
-                    "is_business_hours": 9 <= timestamp.hour <= 17,
+                    "hour": float(timestamp.hour),
+                    "day_of_week": float(timestamp.dayofweek),
+                    "is_weekend": float(timestamp.dayofweek >= 5),
+                    "is_business_hours": float(9 <= timestamp.hour <= 17),
                 }
             )
 
-        return features
+        return feature_rows
 
-    def _extract_textual_features(self, logs: List[Dict[str, Any]]) -> np.ndarray:
+    def _extract_textual_features(self, logs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Extract textual features"""
-        text_features = []
-
+        feature_rows: List[Dict[str, Any]] = []
         for log in logs:
-            if "message" in log:
-                encoded_text = self.encoders["text"].transform([log["message"]])
-                text_features.append(encoded_text)
+            message = str(log.get("message", ""))
+            row: Dict[str, Any] = {
+                "message_length": float(len(message)),
+                "word_count": float(len(message.split())),
+            }
 
-        return np.array(text_features)
+            text_encoder = self.encoders.get("text") if hasattr(self, "encoders") else None
+            if text_encoder is not None and message:
+                try:
+                    encoded_text = text_encoder.transform([message])
+                    encoded_array = np.asarray(encoded_text).ravel()
+                    if encoded_array.size > 0:
+                        row["text_embedding_mean"] = float(encoded_array.mean())
+                        row["text_embedding_std"] = float(encoded_array.std())
+                except Exception:
+                    self.logger.debug("Text encoding unavailable for message")
+
+            feature_rows.append(row)
+
+        return feature_rows
 
     async def _get_priorities(self, features: pd.DataFrame) -> np.ndarray:
         """Get log priorities using classification model"""
         try:
+            if self.log_classifier is None or features.empty:
+                return np.ones(len(features))
+
             # Check cache first
             cache_key = self._get_cache_key(features)
             if cache_key in self.prediction_cache:
@@ -249,7 +324,7 @@ class MLEnhancedConnector:
             predictions = self.log_classifier.predict(scaled_features)
 
             # Update cache
-            self.prediction_cache[cache_key] = predictions
+            self._set_prediction_cache(cache_key, predictions)
 
             return predictions
 
@@ -260,6 +335,9 @@ class MLEnhancedConnector:
     async def _detect_anomalies(self, features: pd.DataFrame) -> np.ndarray:
         """Detect anomalies in logs"""
         try:
+            if self.anomaly_detector is None or features.empty:
+                return np.zeros(len(features))
+
             # Preprocess features
             scaled_features = self.scalers["anomaly"].transform(features)
 
@@ -327,7 +405,10 @@ class MLEnhancedConnector:
         for i in range(len(features) - window_size + 1):
             window = features.iloc[i : i + window_size]
             pattern = self._hash_pattern(window)
+            pattern_was_new = pattern not in self.pattern_cache
             self.pattern_cache[pattern] += 1
+            if pattern_was_new:
+                self._enforce_pattern_cache_limit()
 
             if self.pattern_cache[pattern] > 10:  # Pattern threshold
                 sequences.append(
@@ -342,7 +423,7 @@ class MLEnhancedConnector:
 
     def _hash_pattern(self, pattern: pd.DataFrame) -> str:
         """Create hash for pattern matching"""
-        return hashlib.md5(pattern.values.tobytes()).hexdigest()
+        return hashlib.md5(pattern.values.tobytes(), usedforsecurity=False).hexdigest()
 
     async def prioritize_processing(
         self, enhanced_logs: List[Dict[str, Any]]
@@ -392,8 +473,13 @@ class MLEnhancedConnector:
             return
 
         try:
+            self.recent_features.append(features)
+
             # Update anomaly detector
-            self.anomaly_detector.partial_fit(features)
+            if self.anomaly_detector is not None and hasattr(
+                self.anomaly_detector, "partial_fit"
+            ):
+                self.anomaly_detector.partial_fit(features)
 
             # Update classifier if labels available
             labels = [
@@ -401,11 +487,16 @@ class MLEnhancedConnector:
                 for log in processed_logs
                 if "true_priority" in log
             ]
-            if labels:
+            if labels and self.log_classifier is not None and hasattr(
+                self.log_classifier, "partial_fit"
+            ):
                 self.log_classifier.partial_fit(features, labels)
 
             # Update feature importance
-            self.feature_importance.update(features, labels)
+            if self.feature_importance is not None and hasattr(
+                self.feature_importance, "update"
+            ):
+                self.feature_importance.update(features, labels)
 
             self.logger.info("Successfully updated ML models")
 
@@ -414,6 +505,15 @@ class MLEnhancedConnector:
 
     def _start_background_tasks(self):
         """Start background tasks"""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            self.logger.info(
+                "No running event loop during initialization; "
+                "background ML tasks were not started."
+            )
+            return
+
         self.tasks.extend(
             [
                 asyncio.create_task(self._periodic_model_update()),
@@ -445,9 +545,13 @@ class MLEnhancedConnector:
             "log_classification": self.log_classifier,
             "feature_importance": self.feature_importance,
         }.items():
+            if model is None:
+                continue
             try:
                 model_path = f"{self.config.model_path}/{model_name}"
-                if isinstance(model, tf.keras.Model):
+                if TENSORFLOW_AVAILABLE and tf is not None and isinstance(
+                    model, tf.keras.Model
+                ):
                     model.save(model_path)
                 else:
                     joblib.dump(model, model_path)
@@ -515,11 +619,11 @@ class MLEnhancedConnector:
         """
         # Create a hash from feature values
         feature_bytes = features.values.tobytes()
-        return hashlib.md5(feature_bytes).hexdigest()
+        return hashlib.md5(feature_bytes, usedforsecurity=False).hexdigest()
 
     def _extract_numerical_features(
         self, logs: List[Dict[str, Any]]
-    ) -> Dict[str, float]:
+    ) -> List[Dict[str, Any]]:
         """
         Extract numerical features from logs
 
@@ -529,36 +633,22 @@ class MLEnhancedConnector:
         Returns:
             Dictionary of numerical features
         """
-        features = {
-            "log_count": len(logs),
-            "avg_size": 0.0,
-            "max_size": 0.0,
-            "error_count": 0,
-            "warning_count": 0,
-        }
-
-        sizes = []
+        feature_rows: List[Dict[str, Any]] = []
         for log in logs:
-            # Calculate log entry size
-            log_str = str(log)
-            sizes.append(len(log_str))
-
-            # Count severity levels
             level = log.get("level", "").upper()
-            if level == "ERROR":
-                features["error_count"] += 1
-            elif level == "WARNING":
-                features["warning_count"] += 1
+            feature_rows.append(
+                {
+                    "log_size": float(len(str(log))),
+                    "has_error_level": float(level == "ERROR"),
+                    "has_warning_level": float(level == "WARNING"),
+                }
+            )
 
-        if sizes:
-            features["avg_size"] = sum(sizes) / len(sizes)
-            features["max_size"] = max(sizes)
-
-        return features
+        return feature_rows
 
     def _extract_categorical_features(
         self, logs: List[Dict[str, Any]]
-    ) -> Dict[str, int]:
+    ) -> List[Dict[str, Any]]:
         """
         Extract categorical features from logs
 
@@ -568,24 +658,24 @@ class MLEnhancedConnector:
         Returns:
             Dictionary of categorical feature counts
         """
-        features = defaultdict(int)
-
+        level_map = {"ERROR": 3.0, "WARNING": 2.0, "INFO": 1.0, "DEBUG": 0.0}
+        feature_rows: List[Dict[str, Any]] = []
         for log in logs:
-            # Count log levels
-            level = log.get("level", "UNKNOWN")
-            features[f"level_{level}"] += 1
+            level = str(log.get("level", "UNKNOWN")).upper()
+            source = str(log.get("source", "UNKNOWN"))
+            log_type = str(log.get("type", "UNKNOWN"))
 
-            # Count sources
-            source = log.get("source", "UNKNOWN")
-            features[f"source_{source}"] += 1
+            feature_rows.append(
+                {
+                    "level_score": level_map.get(level, 0.0),
+                    "source_length": float(len(source)),
+                    "type_length": float(len(log_type)),
+                }
+            )
 
-            # Count types
-            log_type = log.get("type", "UNKNOWN")
-            features[f"type_{log_type}"] += 1
+        return feature_rows
 
-        return dict(features)
-
-    def _process_anomaly(self, log: Dict[str, Any]) -> Dict[str, Any]:
+    async def _process_anomaly(self, log: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process anomalous log entry
 
@@ -606,7 +696,7 @@ class MLEnhancedConnector:
 
         return log
 
-    def _process_high_priority(self, log: Dict[str, Any]) -> Dict[str, Any]:
+    async def _process_high_priority(self, log: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process high-priority log entry
 
@@ -621,7 +711,7 @@ class MLEnhancedConnector:
 
         return log
 
-    def _process_normal(self, log: Dict[str, Any]) -> Dict[str, Any]:
+    async def _process_normal(self, log: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process normal log entry
 
@@ -699,9 +789,13 @@ class MLEnhancedConnector:
         try:
             # Update scalers if we have enough data
             if hasattr(self, "recent_features") and len(self.recent_features) > 100:
+                matrix = self._build_recent_feature_matrix()
+                if matrix is None or matrix.size == 0:
+                    return
+
                 for scaler_name, scaler in self.scalers.items():
                     try:
-                        scaler.partial_fit(self.recent_features)
+                        scaler.partial_fit(matrix)
                         self.logger.info(f"Updated {scaler_name} scaler")
                     except Exception as e:
                         self.logger.error(
@@ -709,17 +803,41 @@ class MLEnhancedConnector:
                         )
 
                 # Clear recent features after update
-                self.recent_features = []
+                self.recent_features.clear()
 
             self.logger.debug("Preprocessors updated successfully")
 
         except Exception as e:
             self.logger.error(f"Preprocessor update failed: {e!s}")
 
+    def _build_recent_feature_matrix(self) -> Optional[np.ndarray]:
+        """Build a 2D numeric matrix from recent feature snapshots."""
+        if not self.recent_features:
+            return None
+
+        frames: List[pd.DataFrame] = []
+        for item in self.recent_features:
+            if isinstance(item, pd.DataFrame):
+                frames.append(item)
+            elif isinstance(item, np.ndarray):
+                frames.append(pd.DataFrame(item))
+
+        if not frames:
+            return None
+
+        combined = pd.concat(frames, ignore_index=True).fillna(0)
+        numeric = combined.select_dtypes(include=[np.number, bool]).astype(float)
+        if numeric.empty:
+            return None
+
+        return numeric.values
+
     async def cleanup(self):
         """Cleanup resources"""
         for task in self.tasks:
             task.cancel()
 
-        await asyncio.gather(*self.tasks, return_exceptions=True)
-        self._save_models()
+        if self.tasks:
+            await asyncio.gather(*self.tasks, return_exceptions=True)
+        if self.ml_enabled:
+            self._save_models()

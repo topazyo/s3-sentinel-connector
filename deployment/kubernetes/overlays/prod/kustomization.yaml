@@ -3,26 +3,16 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-bases:
-  - ../../base
-
 namespace: s3-sentinel-prod
 
 commonLabels:
   environment: prod
 
 resources:
+  - ../../base
   - namespace.yaml
   - networkpolicy.yaml
   - poddisruptionbudget.yaml
-
-configMapGenerator:
-  - name: connector-config
-    literals:
-      - environment=prod
-      - log_level=INFO
-      - metrics_interval=60
-      - batch_size=1000
 
 patches:
   - patch: |-
@@ -43,3 +33,21 @@ patches:
                 limits:
                   cpu: "1000m"
                   memory: "2Gi"
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: connector-config
+      data:
+        environment: prod
+        log_level: INFO
+        metrics_interval: "60"
+        batch_size: "1000"
+  - patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: s3-sentinel-connector
+      spec:
+        minReplicas: 3
+        maxReplicas: 10

@@ -1,4 +1,5 @@
 # src/core/sentinel_router.py
+"""Azure Sentinel routing with batching, resilience patterns, and observability hooks."""
 
 import asyncio
 import hashlib
@@ -117,6 +118,7 @@ class SentinelRouter:
         stream_name: str,
         max_retries: int = 3,
         batch_timeout: int = 30,
+        max_concurrent_batches: int = 4,
         logs_client: Optional[Any] = None,
         credential: Optional[Any] = None,
     ) -> None:
@@ -129,12 +131,14 @@ class SentinelRouter:
             stream_name: Log stream name
             max_retries: Maximum number of retry attempts
             batch_timeout: Timeout for batch operations in seconds
+            max_concurrent_batches: Maximum number of batches ingested concurrently
         """
         self.dcr_endpoint = dcr_endpoint
         self.rule_id = rule_id
         self.stream_name = stream_name
         self.max_retries = max_retries
         self.batch_timeout = batch_timeout
+        self.max_concurrent_batches = max(1, max_concurrent_batches)
 
         # Initialize Azure clients (can be overridden for tests)
         if logs_client is not None:
@@ -172,8 +176,8 @@ class SentinelRouter:
         # Initialize failed batch storage from config (not environment)
         # Container name should be passed via config, not os.getenv
         self.failed_batches_container = (
-            "sentinel-failed-batches"
-        )  # Can be overridden via setter
+            "sentinel-failed-batches"  # Can be overridden via setter
+        )
         self._blob_client: Optional[BlobServiceClient] = None
 
     def set_failed_batches_container(self, container_name: str) -> None:
@@ -266,6 +270,7 @@ class SentinelRouter:
             "failed": 0,
             "batch_count": 0,
             "start_time": datetime.now(timezone.utc),
+            "dropped": 0,  # Phase 4 (B1-008/OBS-03): Include dropped count in return value
         }
 
         try:
@@ -284,6 +289,9 @@ class SentinelRouter:
             if dropped_count > 0:
                 # Phase 4 (B1-008): Meter dropped logs
                 self.metrics["dropped_logs"] += dropped_count
+                results["dropped"] = (
+                    dropped_count  # Phase 4 (B1-008): Return dropped count
+                )
                 drop_rate = (dropped_count / initial_count) * 100
 
                 # Phase 4 (B1-008): Warn when logs are dropped
@@ -298,9 +306,7 @@ class SentinelRouter:
             # Process in batches
             batches = self._create_batches(valid_logs, table_config.batch_size)
 
-            async with asyncio.TaskGroup() as group:
-                for batch in batches:
-                    group.create_task(self._ingest_batch(batch, table_config, results))
+            await self._ingest_batches_async(batches, table_config, results)
 
             self._update_metrics(results)
             return results
@@ -327,6 +333,10 @@ class SentinelRouter:
                     or key in table_config.data_type_map
                 ):
                     transformed_log.setdefault(key, value)
+
+            # Compatibility mapping for parser-to-router contract alignment
+            if "Action" not in transformed_log and "FirewallAction" in log:
+                transformed_log["Action"] = log["FirewallAction"]
 
             # Add required fields if missing
             if "TimeGenerated" not in transformed_log:
@@ -432,6 +442,27 @@ class SentinelRouter:
             logging.error(f"Unexpected error during batch ingestion: {e!s}")
             results["failed"] += len(batch)
 
+    async def _ingest_batches_async(
+        self,
+        batches: List[List[Dict[str, Any]]],
+        table_config: TableConfig,
+        results: Dict[str, Any],
+    ) -> None:
+        """Ingest batches concurrently with bounded task fan-out."""
+        if not batches:
+            return
+
+        max_concurrent = min(self.max_concurrent_batches, len(batches))
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def bounded_ingest(batch: List[Dict[str, Any]]) -> None:
+            async with semaphore:
+                await self._ingest_batch(batch, table_config, results)
+
+        async with asyncio.TaskGroup() as group:
+            for batch in batches:
+                group.create_task(bounded_ingest(batch))
+
     @staticmethod
     def _create_batches(
         logs: List[Dict[str, Any]], batch_size: int
@@ -481,7 +512,7 @@ class SentinelRouter:
             batch: The failed log batch
             error: The exception that caused the failure
         """
-        batch_id = hashlib.md5(str(batch).encode()).hexdigest()
+        batch_id = hashlib.md5(str(batch).encode(), usedforsecurity=False).hexdigest()
 
         # Phase 4 (B2-005): Categorize error for observability
         error_category = self._categorize_batch_error(error)

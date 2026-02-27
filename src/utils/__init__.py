@@ -27,17 +27,17 @@ from .tracing import (
 )
 
 __all__ = [
-    "RetryableError",
-    "retry_with_backoff",
-    "RateLimiter",
     "CircuitBreaker",
     "CircuitBreakerConfig",
     "CircuitBreakerOpenError",
     "CircuitState",
-    "with_circuit_breaker",
-    "get_correlation_id",
-    "set_correlation_id",
+    "RateLimiter",
+    "RetryableError",
     "clear_correlation_id",
-    "with_correlation_id",
     "get_correlation_context",
+    "get_correlation_id",
+    "retry_with_backoff",
+    "set_correlation_id",
+    "with_circuit_breaker",
+    "with_correlation_id",
 ]

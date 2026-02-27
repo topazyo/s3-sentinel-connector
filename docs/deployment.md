@@ -47,6 +47,32 @@ kubectl apply -k deployment/kubernetes/overlays/dev
 kubectl rollout status deployment/s3-sentinel-connector
 ```
 
+Local Terraform formatting (recommended)
+----------------------------------------
+Use the workspace task that routes through the resilient wrapper script:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File deployment/scripts/terraform_fmt_recursive.ps1
+```
+
+For CI-like non-mutating verification, use check mode:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File deployment/scripts/terraform_fmt_recursive.ps1 -Check
+```
+
+This wrapper resolves Terraform in the following order:
+- explicit `-TerraformExe` path
+- `terraform` on `PATH`
+- Windows WinGet package discovery under `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Hashicorp.Terraform*`
+- `where.exe terraform` fallback
+
+Example with an explicit executable path:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File deployment/scripts/terraform_fmt_recursive.ps1 -TerraformExe "C:\path\to\terraform.exe"
+```
+
 Configuration
 -------------
 
@@ -57,10 +83,110 @@ cp .env.example .env
 # or PowerShell: Copy-Item .env.example .env
 ```
 
+For deployment script variables, create local env files from tracked templates:
+
+```bash
+cp deployment/scripts/env/prod.env.example deployment/scripts/env/prod.env
+```
+
+Concrete env files under `deployment/scripts/env/*.env` are ignored by git.
+
 Key configuration locations:
 - `config/base.yaml` — default values
 - `config/{dev,prod}.yaml` — environment overrides
 - `config/tables.yaml` — mapping of parsers to Sentinel tables
+
+Production configuration overrides
+--------------------------------
+
+`config/prod.yaml` intentionally contains placeholder values and must be overridden for real deployments.
+
+Required production overrides:
+- `aws.bucket_name`
+- `aws.access_key_id` (or `keyvault:...` reference)
+- `aws.secret_access_key` (or `keyvault:...` reference)
+- `sentinel.workspace_id`
+- `sentinel.dcr_endpoint`
+- `sentinel.rule_id`
+- `sentinel.stream_name`
+- `monitoring.metrics_endpoint`
+- `monitoring.alert_webhook`
+- `database.host`
+- `database.username`
+- `database.password` (or `keyvault:...` reference)
+
+Recommended override mechanism:
+- Environment variables with `APP_` prefix (for example `APP_SENTINEL_WORKSPACE_ID`).
+- Key Vault references (`keyvault:<secret-name>`) for sensitive fields.
+
+Runtime commands
+----------------
+
+The container and CLI now support operational runtime commands:
+
+```bash
+# Validate config
+s3-sentinel validate-config --config-dir config --environment dev
+
+# Run one ingestion cycle and exit
+s3-sentinel ingest --config-dir config --environment dev --log-type firewall
+
+# Run long-lived service with health/metrics endpoints
+s3-sentinel run --config-dir config --environment prod --log-type firewall --poll-interval 30
+
+# Replay failed batch payloads and archive successful replays
+s3-sentinel replay-failed --config-dir config --environment prod --failed-batches-dir failed_batches
+```
+
+Health and metrics endpoints:
+- `GET /health` on port `8080`
+- `GET /ready` on port `8080`
+- `GET /metrics` on ports `8080` and `9090`
+
+CI/CD secrets
+-------------
+
+Required GitHub Actions repository secrets:
+
+1. `AZURE_CREDENTIALS`
+  - JSON service principal credentials used by `azure/login@v2`
+  - Create with:
+
+```bash
+az ad sp create-for-rbac \
+  --name s3-sentinel-gha \
+  --role Contributor \
+  --scopes /subscriptions/<subscription-id> \
+  --sdk-auth
+```
+
+2. `ACR_NAME`
+  - Plain ACR resource name (without `.azurecr.io`), for example `myregistry`.
+
+Optional:
+- `SNYK_TOKEN` if you enable Snyk scanning in active workflows.
+
+Terraform state backend bootstrap
+--------------------------------
+
+Environment backend files are defined at:
+- `deployment/terraform/environments/dev/backend.tf`
+- `deployment/terraform/environments/prod/backend.tf`
+
+Before first `terraform init`, create a storage account and state container in each environment:
+
+```bash
+az group create --name tfstate-<env>-rg --location <region>
+az storage account create --name <tfstateaccount> --resource-group tfstate-<env>-rg --sku Standard_LRS
+az storage container create --name tfstate --account-name <tfstateaccount>
+```
+
+Then run:
+
+```bash
+terraform -chdir=deployment/terraform/environments/<env> init
+terraform -chdir=deployment/terraform/environments/<env> validate
+```
 
 Post-deployment verification
 ----------------------------
@@ -105,6 +231,12 @@ kubectl logs deployment/s3-sentinel-connector -n <namespace>
 
 ```powershell
 .\Solutions\S3SentinelConnector\Verification\Test_Deployment.ps1 -ResourceGroupName "rg-sentinel-test" -ParametersFile "./parameters.json"
+```
+
+- To run deployment smoke tests after rollout:
+
+```bash
+./deployment/scripts/smoke_tests.sh dev
 ```
 
 Files referenced

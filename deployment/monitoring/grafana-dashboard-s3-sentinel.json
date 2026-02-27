@@ -1,0 +1,49 @@
+{
+  "title": "S3 Sentinel Connector Operational Overview",
+  "uid": "s3-sentinel-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "title": "Processed Records / min",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(s3_sentinel_records_processed_total[1m]))",
+          "legendFormat": "records/min"
+        }
+      ]
+    },
+    {
+      "title": "Failed Records / min",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate(s3_sentinel_failed_records_total[1m]))",
+          "legendFormat": "failed/min"
+        }
+      ]
+    },
+    {
+      "title": "Processing Latency (p95)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(s3_sentinel_processing_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "title": "Dropped Logs (15m increase)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "increase(s3_sentinel_dropped_logs_total[15m])",
+          "legendFormat": "dropped"
+        }
+      ]
+    }
+  ]
+}

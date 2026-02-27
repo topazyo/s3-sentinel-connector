@@ -19,3 +19,15 @@ output "app_insights_id" {
 output "key_vault_name" {
   value = azurerm_key_vault.kv.name
 }
+
+output "sentinel_solution_id" {
+  value = azurerm_log_analytics_solution.sentinel.id
+}
+
+output "data_collection_endpoint_id" {
+  value = azurerm_monitor_data_collection_endpoint.dce.id
+}
+
+output "data_collection_rule_id" {
+  value = azurerm_monitor_data_collection_rule.dcr.id
+}

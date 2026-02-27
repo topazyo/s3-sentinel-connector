@@ -13,18 +13,18 @@ network_config = {
 # AKS configuration
 aks_config = {
   kubernetes_version = "1.23.8"
-  node_count        = 2
-  vm_size           = "Standard_D2s_v3"
-  min_nodes         = 2
-  max_nodes         = 4
+  node_count         = 2
+  vm_size            = "Standard_D2s_v3"
+  min_nodes          = 2
+  max_nodes          = 4
 }
 
 # Monitoring configuration
 monitoring_config = {
-  retention_days     = 30
-  log_analytics_sku  = "PerGB2018"
-  enable_prometheus  = true
-  metrics_retention  = "P30D"
+  retention_days    = 30
+  log_analytics_sku = "PerGB2018"
+  enable_prometheus = true
+  metrics_retention = "P30D"
 }
 
 # Tags

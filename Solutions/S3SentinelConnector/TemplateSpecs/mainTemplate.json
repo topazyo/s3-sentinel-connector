@@ -122,17 +122,18 @@
   "variables": {
     "functionAppPlanName": "[concat(parameters('functionAppName'), '-plan')]",
     "applicationInsightsName": "[concat(parameters('functionAppName'), '-insights')]",
+    "storageAccountNameSafe": "[toLower(concat(take(replace(parameters('functionAppName'), '-', ''), 9), uniqueString(resourceGroup().id, parameters('functionAppName')), 'sa'))]",
     "dcrName": "[concat(parameters('functionAppName'), '-dcr')]",
     "dceName": "[concat(parameters('functionAppName'), '-dce')]",
     "customTableName": "[if(equals(parameters('logType'), 'firewall'), 'Custom_Firewall_CL', 'Custom_VPN_CL')]",
-    "streamName": "Microsoft-Event",
+    "streamName": "[concat('Custom-', variables('customTableName'))]",
     "workspaceResourceId": "[resourceId(parameters('workspaceResourceGroup'), 'Microsoft.OperationalInsights/workspaces', parameters('workspaceName'))]"
   },
   "resources": [
     {
       "type": "Microsoft.Storage/storageAccounts",
       "apiVersion": "2021-09-01",
-      "name": "s3stfuncsa",
+      "name": "[variables('storageAccountNameSafe')]",
       "tags": {
         "displayName": "Function App Storage"
       },
@@ -364,52 +365,7 @@
         "dataCollectionEndpointId": "[resourceId('Microsoft.Insights/dataCollectionEndpoints', variables('dceName'))]",
         "streamDeclarations": {
           "[variables('streamName')]": {
-            "columns": [
-              {
-                "name": "TimeGenerated",
-                "type": "datetime"
-              },
-              {
-                "name": "SourceIP",
-                "type": "string"
-              },
-              {
-                "name": "DestinationIP",
-                "type": "string"
-              },
-              {
-                "name": "Action",
-                "type": "string"
-              },
-              {
-                "name": "Protocol",
-                "type": "string"
-              },
-              {
-                "name": "SourcePort",
-                "type": "int"
-              },
-              {
-                "name": "DestinationPort",
-                "type": "int"
-              },
-              {
-                "name": "BytesTransferred",
-                "type": "long"
-              },
-              {
-                "name": "RuleName",
-                "type": "string"
-              },
-              {
-                "name": "DataClassification",
-                "type": "string"
-              },
-              {
-                "name": "SchemaVersion",
-                "type": "string"
-              }
-            ]
+            "columns": "[if(equals(parameters('logType'), 'firewall'), createArray(createObject('name', 'TimeGenerated', 'type', 'datetime'), createObject('name', 'SourceIP', 'type', 'string'), createObject('name', 'DestinationIP', 'type', 'string'), createObject('name', 'Action', 'type', 'string'), createObject('name', 'Protocol', 'type', 'string'), createObject('name', 'SourcePort', 'type', 'int'), createObject('name', 'DestinationPort', 'type', 'int'), createObject('name', 'BytesTransferred', 'type', 'long')), createArray(createObject('name', 'TimeGenerated', 'type', 'datetime'), createObject('name', 'UserPrincipalName', 'type', 'string'), createObject('name', 'SessionID', 'type', 'string'), createObject('name', 'ClientIP', 'type', 'string'), createObject('name', 'BytesIn', 'type', 'long'), createObject('name', 'BytesOut', 'type', 'long'), createObject('name', 'ConnectionDuration', 'type', 'int')))]"
           }
         },
         "destinations": {
@@ -423,13 +379,13 @@
         "dataFlows": [
           {
             "streams": [
-              "Microsoft-Event"
+              "[variables('streamName')]"
             ],
             "destinations": [
               "sentinel-workspace"
             ],
             "transformKql": "source",
-            "outputStream": "Microsoft-Event"
+            "outputStream": "[concat('Microsoft-Table-', variables('customTableName'))]"
           }
         ]
       }

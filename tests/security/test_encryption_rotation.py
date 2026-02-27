@@ -6,7 +6,7 @@ import tempfile
 import time
 
 import pytest
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 
 from src.security.encryption import EncryptionConfig, EncryptionManager
 
@@ -71,7 +71,7 @@ class TestEncryptionRotation:
         assert decrypted_data == test_data
 
         # Old key should NOT decrypt the re-encrypted data
-        with pytest.raises(Exception):
+        with pytest.raises(InvalidToken):
             old_fernet.decrypt(reencrypted_data)
 
     def test_reencrypt_multiple_files(self, encryption_manager, temp_key_store):

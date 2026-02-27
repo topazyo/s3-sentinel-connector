@@ -1,0 +1,110 @@
+name: CD
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment (dev or prod)"
+        required: true
+        default: "dev"
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve environment and image tag
+        id: context
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "environment=prod" >> "$GITHUB_OUTPUT"
+            echo "image_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=${{ github.event.inputs.environment }}" >> "$GITHUB_OUTPUT"
+            echo "image_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Terraform init, plan, apply
+        shell: bash
+        run: |
+          terraform -chdir=deployment/terraform/environments/${{ steps.context.outputs.environment }} init -backend=false
+          terraform -chdir=deployment/terraform/environments/${{ steps.context.outputs.environment }} validate
+          terraform -chdir=deployment/terraform/environments/${{ steps.context.outputs.environment }} plan \
+            -var-file=terraform.tfvars \
+            -out=tfplan
+          terraform -chdir=deployment/terraform/environments/${{ steps.context.outputs.environment }} apply -auto-approve tfplan
+
+      - name: Build and push container image
+        shell: bash
+        env:
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+        run: |
+          az acr login --name "$ACR_NAME"
+          docker build -t "$ACR_NAME.azurecr.io/s3-sentinel-connector:${{ steps.context.outputs.image_tag }}" .
+
+      - name: Scan container image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        env:
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+        with:
+          image-ref: ${{ env.ACR_NAME }}.azurecr.io/s3-sentinel-connector:${{ steps.context.outputs.image_tag }}
+          format: table
+          exit-code: '1'
+          severity: HIGH,CRITICAL
+
+      - name: Push container image
+        shell: bash
+        env:
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+        run: |
+          docker push "$ACR_NAME.azurecr.io/s3-sentinel-connector:${{ steps.context.outputs.image_tag }}"
+
+      - name: Get AKS credentials
+        shell: bash
+        run: |
+          az aks get-credentials \
+            --resource-group "s3-sentinel-connector-${{ steps.context.outputs.environment }}-rg" \
+            --name "s3-sentinel-${{ steps.context.outputs.environment }}-aks" \
+            --overwrite-existing
+
+      - name: Deploy Kubernetes manifests
+        shell: bash
+        env:
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+        run: |
+          kubectl apply -k deployment/kubernetes/overlays/${{ steps.context.outputs.environment }}
+          kubectl set image deployment/s3-sentinel-connector \
+            connector="$ACR_NAME.azurecr.io/s3-sentinel-connector:${{ steps.context.outputs.image_tag }}" \
+            -n s3-sentinel-${{ steps.context.outputs.environment }}
+          kubectl rollout status deployment/s3-sentinel-connector -n s3-sentinel-${{ steps.context.outputs.environment }} --timeout=300s
+
+      - name: Run smoke tests
+        shell: bash
+        run: |
+          chmod +x deployment/scripts/smoke_tests.sh
+          ./deployment/scripts/smoke_tests.sh "${{ steps.context.outputs.environment }}"

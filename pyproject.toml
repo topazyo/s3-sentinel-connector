@@ -1,6 +1,6 @@
 [tool.black]
 line-length = 88
-target-version = ['py39']
+target-version = ['py39', 'py310', 'py311', 'py312']
 include = '\.pyi?$'
 
 [tool.isort]
@@ -10,15 +10,31 @@ known_first_party = ['src']
 
 [tool.ruff]
 line-length = 88
-select = ["E", "F", "W", "I", "B", "C90", "RUF"]
-# Removed unsupported selector `W503` which causes a TOML parse/error in ruff.
-ignore = ["E203"]
 exclude = [".git", "__pycache__", "build", "dist", "Solutions"]
 
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "C90", "RUF"]
+ignore = ["E203", "E501"]  # E501: line length handled by formatter, E203: whitespace
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12  # Allow slightly higher complexity for batch processing functions
+
 [tool.pytest.ini_options]
-minversion = "6.0"
+minversion = "8.0"
 addopts = "-ra -q"
 testpaths = ["tests"]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+asyncio_default_test_loop_scope = "function"
+filterwarnings = [
+	"error:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited:RuntimeWarning",
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_configs = true
 
 [build-system]
 requires = ["setuptools", "wheel"]

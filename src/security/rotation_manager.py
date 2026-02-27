@@ -1,4 +1,5 @@
 # src/security/rotation_manager.py
+"""Credential rotation scheduling and execution orchestration."""
 
 import asyncio
 import logging
@@ -9,6 +10,8 @@ from .credential_manager import CredentialManager
 
 
 class RotationManager:
+    """Coordinates rotation checks, cooldown enforcement, and rotation state."""
+
     def __init__(
         self, credential_manager: CredentialManager, rotation_config: Dict[str, Any]
     ) -> None:

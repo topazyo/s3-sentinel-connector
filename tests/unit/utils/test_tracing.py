@@ -232,7 +232,7 @@ class TestCorrelationIDWithLogging:
 
         # Assert
         assert mock_warning.called
-        call_args, call_kwargs = mock_warning.call_args
+        _call_args, call_kwargs = mock_warning.call_args
         assert call_kwargs["extra"]["correlation_id"] == test_id
         assert call_kwargs["extra"]["batch_size"] == 100
         assert call_kwargs["extra"]["status"] == "degraded"

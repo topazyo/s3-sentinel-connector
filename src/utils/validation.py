@@ -1,4 +1,5 @@
 # src/utils/validation.py
+"""Validation primitives for field-level and schema-level data checks."""
 
 import ipaddress
 import re
@@ -18,6 +19,8 @@ class ValidationRule:
 
 
 class DataValidator:
+    """Validates payload fields against declarative validation rule sets."""
+
     def __init__(self) -> None:
         """Initialize data validator"""
         self._initialize_validators()

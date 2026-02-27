@@ -1,4 +1,5 @@
 # src/core/__init__.py
+"""Core pipeline composition layer for S3 ingestion, parsing, and Sentinel routing."""
 
 import logging
 from typing import Any, Dict, List, Optional
@@ -9,9 +10,9 @@ from .sentinel_router import SentinelRouter
 
 __all__ = [
     "CoreManager",
-    "S3Handler",
     "FirewallLogParser",
     "JsonLogParser",
+    "S3Handler",
     "SentinelRouter",
 ]
 

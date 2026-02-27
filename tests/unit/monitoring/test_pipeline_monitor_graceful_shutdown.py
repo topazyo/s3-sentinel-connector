@@ -29,7 +29,7 @@ def mock_azure_clients():
 
         # Mock metrics client
         mock_metrics_instance = MagicMock()
-        mock_metrics_instance.ingest_metrics = AsyncMock()
+        mock_metrics_instance.ingest_metrics = MagicMock(return_value=None)
         mock_metrics.return_value = mock_metrics_instance
 
         yield {

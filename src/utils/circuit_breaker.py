@@ -61,6 +61,7 @@ class CircuitBreakerOpenError(Exception):
     """
 
     def __init__(self, service_name: str, opened_at: datetime, recovery_timeout: int):
+        """Create a circuit-open exception with next-attempt timing context."""
         self.service_name = service_name
         self.opened_at = opened_at
         self.recovery_timeout = recovery_timeout

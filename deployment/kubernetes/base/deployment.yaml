@@ -17,6 +17,11 @@ spec:
       containers:
       - name: connector
         image: ${ACR_NAME}.azurecr.io/s3-sentinel-connector:${IMAGE_TAG}
+        ports:
+        - name: http
+          containerPort: 8080
+        - name: metrics
+          containerPort: 9090
         resources:
           requests:
             cpu: "500m"

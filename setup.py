@@ -29,10 +29,9 @@ def read_requirements(filename: str) -> List[str]:
 
 setup(
     name="s3-sentinel-connector",
-    version="1.0.0",
+    version="1.1.0",
     description="Secure log transfer from AWS S3 to Microsoft Sentinel",
-    author="Your Name",
-    author_email="your.email@example.com",
+    author="S3 Sentinel Connector Maintainers",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
     python_requires=">=3.9",
@@ -40,6 +39,7 @@ setup(
     extras_require={
         "dev": read_requirements("requirements-dev.txt"),
         "test": read_requirements("requirements-test.txt"),
+        "ml": read_requirements("requirements-ml.txt"),
     },
     entry_points={
         "console_scripts": [
@@ -53,11 +53,13 @@ setup(
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
         "Topic :: Security",
         "Topic :: System :: Logging",
     ],
     project_urls={
-        "Source": "https://github.com/yourusername/s3-sentinel-connector",
-        "Documentation": "https://s3-sentinel-connector.readthedocs.io/",
+        "Source": "https://github.com/topazyo/s3-sentinel-connector",
+        "Documentation": "https://github.com/topazyo/s3-sentinel-connector/tree/main/docs",
     },
 )

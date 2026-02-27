@@ -1,0 +1,32 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: s3-sentinel-runtime-rules
+spec:
+  groups:
+    - name: s3-sentinel-runtime
+      rules:
+        - alert: S3SentinelErrorRateHigh
+          expr: rate(s3_sentinel_failed_records_total[5m]) > 0.1
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "S3 Sentinel error rate is high"
+            description: "Failure rate has been above 10% for 10 minutes."
+        - alert: S3SentinelLatencyP95High
+          expr: histogram_quantile(0.95, sum(rate(s3_sentinel_processing_latency_seconds_bucket[5m])) by (le)) > 180
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "S3 Sentinel processing latency is elevated"
+            description: "P95 latency exceeded 180 seconds over the last 10 minutes."
+        - alert: S3SentinelDroppedLogsBurst
+          expr: increase(s3_sentinel_dropped_logs_total[15m]) > 200
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "S3 Sentinel dropped logs burst detected"
+            description: "Dropped logs increased by more than 200 in 15 minutes."

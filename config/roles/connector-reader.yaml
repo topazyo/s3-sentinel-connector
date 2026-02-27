@@ -1,0 +1,6 @@
+name: connector-reader
+description: Read-only operational access for S3 Sentinel Connector
+permissions:
+  - monitor:read
+  - metrics:read
+  - failed_batches:read

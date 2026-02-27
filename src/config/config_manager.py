@@ -1,4 +1,5 @@
 # src/config/config_manager.py
+"""Configuration loading, validation, and runtime update management."""
 
 import logging
 import os
@@ -17,6 +18,22 @@ from watchdog.observers import Observer
 
 @dataclass
 class DatabaseConfig:
+    """Database connection configuration.
+
+    Defines parameters for connecting to the application database,
+    including authentication, SSL, and connection pooling settings.
+
+    Attributes:
+        host: Database server hostname or IP address.
+        port: Database server port number.
+        database: Name of the database to connect to.
+        username: Database user for authentication.
+        password: Database password (should be loaded from Key Vault in prod).
+        ssl_enabled: Whether to use SSL/TLS for connection security.
+        connection_timeout: Timeout in seconds for connection attempts.
+        max_connections: Maximum number of connections in the pool.
+    """
+
     host: str
     port: int
     database: str
@@ -29,6 +46,21 @@ class DatabaseConfig:
 
 @dataclass
 class AwsConfig:
+    """AWS S3 configuration for log ingestion.
+
+    Defines parameters for connecting to AWS S3 to retrieve log files.
+    Credentials should be loaded from Key Vault in production environments.
+
+    Attributes:
+        access_key_id: AWS access key ID for authentication.
+        secret_access_key: AWS secret access key (load from Key Vault).
+        region: AWS region where the S3 bucket is located.
+        bucket_name: Name of the S3 bucket containing log files.
+        prefix: S3 key prefix to filter objects (e.g., 'logs/firewall/').
+        batch_size: Number of files to process in each batch.
+        max_retries: Maximum retry attempts for failed S3 operations.
+    """
+
     access_key_id: str
     secret_access_key: str
     region: str
@@ -40,6 +72,21 @@ class AwsConfig:
 
 @dataclass
 class SentinelConfig:
+    """Azure Sentinel configuration for log ingestion.
+
+    Defines parameters for routing logs to Azure Sentinel via the
+    Data Collection Rules (DCR) API endpoint.
+
+    Attributes:
+        workspace_id: Azure Log Analytics workspace ID.
+        dcr_endpoint: Data Collection Rule endpoint URL.
+        rule_id: DCR rule identifier (immutable ID).
+        stream_name: Stream name for the DCR (e.g., 'Custom-FirewallLogs_CL').
+        table_name: Target Log Analytics table name.
+        batch_size: Maximum records per ingestion batch.
+        retention_days: Data retention period in days.
+    """
+
     workspace_id: str
     dcr_endpoint: str
     rule_id: str
@@ -51,6 +98,20 @@ class SentinelConfig:
 
 @dataclass
 class MonitoringConfig:
+    """Monitoring and alerting configuration.
+
+    Defines settings for metrics collection, alerting, and health checks
+    used by the pipeline monitoring system.
+
+    Attributes:
+        metrics_endpoint: URL for the metrics ingestion endpoint.
+        alert_webhook: Webhook URL for sending alerts (Teams/Slack).
+        log_level: Logging verbosity level (DEBUG, INFO, WARNING, ERROR).
+        enable_prometheus: Whether to expose Prometheus metrics endpoint.
+        metrics_interval: Interval in seconds for metrics collection.
+        health_check_interval: Interval in seconds for health checks.
+    """
+
     metrics_endpoint: str
     alert_webhook: str
     log_level: str = "INFO"
@@ -66,6 +127,8 @@ class ConfigurationError(Exception):
 
 
 class ConfigManager:
+    """Centralized configuration manager with env override and hot-reload support."""
+
     def __init__(
         self,
         config_path: str,
@@ -93,6 +156,7 @@ class ConfigManager:
         self._config_cache = {}
         self._config_lock = threading.Lock()
         self._last_reload = time.time()
+        self._env_key_path_cache: Dict[str, list[str]] = {}
 
         # Set up logging
         self._setup_logging()
@@ -147,6 +211,7 @@ class ConfigManager:
         instance._config_cache = {}
         instance._config_lock = threading.Lock()
         instance._last_reload = time.time()
+        instance._env_key_path_cache = {}
 
         # Set up logging
         instance._setup_logging()
@@ -221,10 +286,17 @@ class ConfigManager:
         Returns:
             Dictionary containing component configuration
         """
+        component_config = self._config_cache.get(component)
+        if component_config is not None:
+            return component_config
+
         with self._config_lock:
-            if component not in self._config_cache:
+            component_config = self._config_cache.get(component)
+            if component_config is None:
                 self.reload_config()
-            return self._config_cache.get(component, {})
+                component_config = self._config_cache.get(component, {})
+
+            return component_config
 
     def reload_config(self) -> None:
         """Reload configuration from files and environment"""
@@ -282,8 +354,32 @@ class ConfigManager:
         """Apply environment variable overrides"""
         for key, value in os.environ.items():
             if key.startswith("APP_"):
-                config_path = key[4:].lower().split("_")
+                config_path = self._env_key_path_cache.get(key)
+                if config_path is None:
+                    config_path = self._parse_env_override_path(key[4:])
+                    self._env_key_path_cache[key] = config_path
                 self._set_nested_value(self._config_cache, config_path, value)
+
+    def _parse_env_override_path(self, env_key: str) -> list[str]:
+        """Parse APP_ environment variable key into config path.
+
+        Supports:
+        - Single underscore separators for component + field names where
+          field names may contain underscores (e.g., SENTINEL_WORKSPACE_ID ->
+          ["sentinel", "workspace_id"])
+        - Double underscore separators for explicit deeper nesting
+          (e.g., SENTINEL__TABLES__FIREWALL -> ["sentinel", "tables", "firewall"])
+        """
+        normalized_key = env_key.lower()
+
+        if "__" in normalized_key:
+            return [part for part in normalized_key.split("__") if part]
+
+        component, separator, remainder = normalized_key.partition("_")
+        if separator and remainder:
+            return [component, remainder]
+
+        return [normalized_key]
 
     def _set_nested_value(self, config: Dict[str, Any], path: list, value: Any) -> None:
         """Set nested dictionary value using path list"""

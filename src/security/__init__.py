@@ -1,4 +1,5 @@
 # src/security/__init__.py
+"""Security subsystem composition for auth, secrets, validation, and encryption."""
 
 import logging
 from typing import Any, Dict
@@ -14,14 +15,14 @@ from .permission_enforcer import PermissionEnforcer
 from .rotation_manager import RotationManager
 
 __all__ = [
-    "SecurityManager",
-    "CredentialManager",
-    "ConfigurationValidator",
-    "RotationManager",
-    "EncryptionManager",
-    "AuditLogger",
     "AccessControl",
+    "AuditLogger",
+    "ConfigurationValidator",
+    "CredentialManager",
+    "EncryptionManager",
     "PermissionEnforcer",
+    "RotationManager",
+    "SecurityManager",
 ]
 
 

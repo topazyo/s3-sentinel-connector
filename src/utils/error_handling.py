@@ -1,4 +1,5 @@
 # src/utils/error_handling.py
+"""Retry and structured error handling primitives used across pipeline components."""
 
 import asyncio
 import functools
@@ -34,6 +35,8 @@ class NonRetryableError(Exception):
 
 
 class ErrorHandler:
+    """Centralized retry decision and error telemetry helper."""
+
     def __init__(self, config: Optional[ErrorConfig] = None) -> None:
         """
         Initialize error handler

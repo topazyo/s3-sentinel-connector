@@ -1,11 +1,12 @@
 # src/core/log_parser.py
+"""Log parser implementations and schema validation helpers for pipeline ingestion."""
 
 import ipaddress
 import json
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, ClassVar, Dict, Optional
 
 
 class LogParserException(Exception):
@@ -31,7 +32,18 @@ class LogParser(ABC):
 class FirewallLogParser(LogParser):
     """Parser for firewall logs"""
 
+    REQUIRED_FIELDS: ClassVar[tuple[str, ...]] = (
+        "TimeGenerated",
+        "SourceIP",
+        "DestinationIP",
+        "FirewallAction",
+    )
+    VALID_ACTIONS: ClassVar[set[str]] = {"allow", "deny", "drop", "reset"}
+    IP_FIELDS: ClassVar[set[str]] = {"src_ip", "dst_ip"}
+    INT_FIELDS: ClassVar[set[str]] = {"src_port", "dst_port", "bytes"}
+
     def __init__(self) -> None:
+        """Initialize firewall parser mappings and supported timestamp formats."""
         self.logger = logging.getLogger(__name__)
         self.field_mappings = {
             "src_ip": "SourceIP",
@@ -43,6 +55,7 @@ class FirewallLogParser(LogParser):
             "dst_port": "DestinationPort",
             "bytes": "BytesTransferred",
         }
+        self._field_sequence = tuple(self.field_mappings.items())
 
         self.timestamp_formats = [
             "%Y-%m-%dT%H:%M:%S.%fZ",
@@ -75,8 +88,9 @@ class FirewallLogParser(LogParser):
             parsed_data["TimeGenerated"] = self._parse_timestamp(timestamp_str)
 
             # Parse remaining fields
-            for field_name, value in zip(self.field_mappings.keys(), fields[1:]):
-                normalized_name = self.field_mappings.get(field_name, field_name)
+            for (field_name, normalized_name), value in zip(
+                self._field_sequence, fields[1:], strict=False
+            ):
                 parsed_data[normalized_name] = self._normalize_field(field_name, value)
 
             # Add additional computed fields
@@ -98,15 +112,8 @@ class FirewallLogParser(LogParser):
         Returns:
             bool indicating if data is valid
         """
-        required_fields = [
-            "TimeGenerated",
-            "SourceIP",
-            "DestinationIP",
-            "FirewallAction",
-        ]
-
         # Check required fields
-        for field in required_fields:
+        for field in self.REQUIRED_FIELDS:
             if field not in parsed_data:
                 self.logger.error(f"Missing required field: {field}")
                 return False
@@ -120,8 +127,7 @@ class FirewallLogParser(LogParser):
             return False
 
         # Validate action
-        valid_actions = ["allow", "deny", "drop", "reset"]
-        if parsed_data["FirewallAction"].lower() not in valid_actions:
+        if parsed_data["FirewallAction"].lower() not in self.VALID_ACTIONS:
             self.logger.error(
                 f"Invalid firewall action: {parsed_data['FirewallAction']}"
             )
@@ -150,11 +156,11 @@ class FirewallLogParser(LogParser):
             return None
 
         # IP address fields
-        if field_name in ["src_ip", "dst_ip"]:
+        if field_name in self.IP_FIELDS:
             return str(ipaddress.ip_address(value.strip()))
 
         # Integer fields
-        if field_name in ["src_port", "dst_port", "bytes"]:
+        if field_name in self.INT_FIELDS:
             return int(value)
 
         # Action field
@@ -309,7 +315,7 @@ class JsonLogParser(LogParser):
             ) from None
 
         # Then validate depth
-        actual_depth = self._measure_depth(parsed)
+        actual_depth = self._measure_depth(parsed, max_depth=self.max_depth)
         if actual_depth > self.max_depth:
             raise LogParserException(
                 f"JSON nesting depth exceeds maximum: "
@@ -318,7 +324,9 @@ class JsonLogParser(LogParser):
 
         return parsed
 
-    def _measure_depth(self, obj: Any, current_depth: int = 1) -> int:
+    def _measure_depth(
+        self, obj: Any, current_depth: int = 1, max_depth: Optional[int] = None
+    ) -> int:
         """Recursively measure the nesting depth of a JSON structure.
 
         Args:
@@ -328,14 +336,31 @@ class JsonLogParser(LogParser):
         Returns:
             Maximum depth found
         """
+        if max_depth is not None and current_depth > max_depth:
+            return current_depth
+
         if not isinstance(obj, (dict, list)):
             return current_depth
 
         if isinstance(obj, dict):
             if not obj:  # Empty dict
                 return current_depth
-            return max(self._measure_depth(v, current_depth + 1) for v in obj.values())
+            max_found = current_depth
+            for value in obj.values():
+                depth = self._measure_depth(value, current_depth + 1, max_depth)
+                if depth > max_found:
+                    max_found = depth
+                if max_depth is not None and max_found > max_depth:
+                    return max_found
+            return max_found
         else:  # list
             if not obj:  # Empty list
                 return current_depth
-            return max(self._measure_depth(item, current_depth + 1) for item in obj)
+            max_found = current_depth
+            for item in obj:
+                depth = self._measure_depth(item, current_depth + 1, max_depth)
+                if depth > max_found:
+                    max_found = depth
+                if max_depth is not None and max_found > max_depth:
+                    return max_found
+            return max_found

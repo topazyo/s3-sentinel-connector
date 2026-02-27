@@ -68,6 +68,7 @@ pip-wheel-metadata/
 *.spec
 
 # Unit test / coverage outputs
+.ruff_cache/
 .pytest_cache/
 nosetests.xml
 coverage.xml
@@ -93,3 +94,10 @@ docs/_build/
 # Local secrets and credentials
 .env.local
 secrets.json
+deployment/scripts/env/*.env
+!deployment/scripts/env/*.env.example
+
+# Terraform local state and init artifacts
+**/.terraform/
+*.tfstate
+*.tfstate.*

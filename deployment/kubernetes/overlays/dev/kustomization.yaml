@@ -3,24 +3,14 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-bases:
-  - ../../base
-
 namespace: s3-sentinel-dev
 
 commonLabels:
   environment: dev
 
 resources:
+  - ../../base
   - namespace.yaml
-
-configMapGenerator:
-  - name: connector-config
-    literals:
-      - environment=dev
-      - log_level=DEBUG
-      - metrics_interval=30
-      - batch_size=500
 
 patches:
   - patch: |-
@@ -41,3 +31,21 @@ patches:
                 limits:
                   cpu: "500m"
                   memory: "1Gi"
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: connector-config
+      data:
+        environment: dev
+        log_level: DEBUG
+        metrics_interval: "30"
+        batch_size: "500"
+  - patch: |-
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata:
+        name: s3-sentinel-connector
+      spec:
+        minReplicas: 1
+        maxReplicas: 4

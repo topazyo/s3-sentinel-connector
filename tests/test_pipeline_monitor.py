@@ -55,6 +55,35 @@ async def test_alert_condition_triggers(monkeypatch, monitor):
     assert monitor._active_alerts
 
 
+@pytest.mark.asyncio
+async def test_alert_history_is_bounded(monkeypatch):
+    monkeypatch.setattr(
+        "src.monitoring.pipeline_monitor.MetricsIngestionClient",
+        lambda endpoint, credential: _FakeMetricsClient(),
+    )
+    monitor = PipelineMonitor(
+        metrics_endpoint="https://metrics",
+        app_name="app",
+        environment="dev",
+        teams_webhook=None,
+        slack_webhook=None,
+        s3_health_url=None,
+        sentinel_health_url=None,
+        enable_background_tasks=False,
+        max_alert_history=2,
+    )
+
+    cfg = next(c for c in monitor.alert_configs if c.name == "pipeline_lag")
+    await monitor._trigger_alert(cfg, 301)
+    await monitor._trigger_alert(cfg, 302)
+    await monitor._trigger_alert(cfg, 303)
+
+    alerts = monitor._get_active_alerts()
+    assert len(alerts) == 2
+    assert alerts[0]["current_value"] == 302
+    assert alerts[1]["current_value"] == 303
+
+
 class _FakeResp:
     def __init__(self, status: int, text: str = ""):
         self.status = status

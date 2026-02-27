@@ -58,12 +58,12 @@ class DataCollectorSimulator:
 
         # Initialize ingestion client
         self.client = LogsIngestionClient(
-            endpoint=self.dce_endpoint,
-            credential=self.credential,
-            logging_enable=True
+            endpoint=self.dce_endpoint, credential=self.credential, logging_enable=True
         )
 
-    def validate_logs(self, logs: List[Dict[str, Any]], schema: Dict[str, Any]) -> List[str]:
+    def validate_logs(
+        self, logs: List[Dict[str, Any]], schema: Dict[str, Any]
+    ) -> List[str]:
         """
         Validate logs against schema
 
@@ -71,7 +71,7 @@ class DataCollectorSimulator:
             List of validation error messages (empty if valid)
         """
         errors = []
-        required_fields = schema.get('required_fields', [])
+        required_fields = schema.get("required_fields", [])
 
         for i, log in enumerate(logs):
             for field in required_fields:
@@ -79,15 +79,17 @@ class DataCollectorSimulator:
                     errors.append(f"Log {i}: Missing required field '{field}'")
 
             # Validate TimeGenerated format
-            if 'TimeGenerated' in log:
+            if "TimeGenerated" in log:
                 try:
-                    datetime.fromisoformat(log['TimeGenerated'].replace('Z', '+00:00'))
+                    datetime.fromisoformat(log["TimeGenerated"].replace("Z", "+00:00"))
                 except (ValueError, AttributeError):
                     errors.append(f"Log {i}: Invalid TimeGenerated format")
 
         return errors
 
-    def send_logs(self, logs: List[Dict[str, Any]], batch_size: int = 100) -> Dict[str, Any]:
+    def send_logs(
+        self, logs: List[Dict[str, Any]], batch_size: int = 100
+    ) -> Dict[str, Any]:
         """
         Send logs to Azure Monitor via DCR
 
@@ -98,21 +100,16 @@ class DataCollectorSimulator:
         Returns:
             Result dictionary with status and metrics
         """
-        results = {
-            'total': len(logs),
-            'successful': 0,
-            'failed': 0,
-            'errors': []
-        }
+        results = {"total": len(logs), "successful": 0, "failed": 0, "errors": []}
 
         # Ensure TimeGenerated is set
         for log in logs:
-            if 'TimeGenerated' not in log:
-                log['TimeGenerated'] = datetime.now(timezone.utc).isoformat()
+            if "TimeGenerated" not in log:
+                log["TimeGenerated"] = datetime.now(timezone.utc).isoformat()
 
         # Process in batches
         for i in range(0, len(logs), batch_size):
-            batch = logs[i:i + batch_size]
+            batch = logs[i : i + batch_size]
             batch_num = i // batch_size + 1
 
             try:
@@ -120,22 +117,22 @@ class DataCollectorSimulator:
                 self.client.upload(
                     rule_id=self.dcr_rule_id,
                     stream_name=self.stream_name,
-                    logs=cast(List[Any], batch)
+                    logs=cast(List[Any], batch),
                 )
 
-                results['successful'] += len(batch)
+                results["successful"] += len(batch)
                 print(f"✓ Batch {batch_num}: Ingested {len(batch)} log(s)")
 
             except HttpResponseError as e:
-                results['failed'] += len(batch)
+                results["failed"] += len(batch)
                 error_msg = f"Batch {batch_num}: HTTP {e.status_code} - {e.message}"
-                results['errors'].append(error_msg)
+                results["errors"].append(error_msg)
                 print(f"✗ {error_msg}")
 
             except Exception as e:
-                results['failed'] += len(batch)
+                results["failed"] += len(batch)
                 error_msg = f"Batch {batch_num}: {e!s}"
-                results['errors'].append(error_msg)
+                results["errors"].append(error_msg)
                 print(f"✗ {error_msg}")
 
         return results
@@ -143,55 +140,51 @@ class DataCollectorSimulator:
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """Load simulation configuration from JSON file"""
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         return json.load(f)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Simulate data ingestion for S3 to Sentinel Data Connector'
+        description="Simulate data ingestion for S3 to Sentinel Data Connector"
     )
     parser.add_argument(
-        '--dce-endpoint',
+        "--dce-endpoint",
         required=True,
-        help='Data Collection Endpoint URL (e.g., https://<dce-name>.ingest.monitor.azure.com)'
+        help="Data Collection Endpoint URL (e.g., https://<dce-name>.ingest.monitor.azure.com)",
     )
     parser.add_argument(
-        '--dcr-rule-id',
+        "--dcr-rule-id",
         required=True,
-        help='Data Collection Rule immutable ID (e.g., dcr-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)'
+        help="Data Collection Rule immutable ID (e.g., dcr-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)",
     )
     parser.add_argument(
-        '--stream-name',
+        "--stream-name",
         required=True,
-        help='Stream name (e.g., Custom-Custom_Firewall_CL)'
+        help="Stream name (e.g., Custom-Custom_Firewall_CL)",
     )
     parser.add_argument(
-        '--config',
-        default='Simulated_Logs.json',
-        help='Path to simulation config file (default: Simulated_Logs.json)'
+        "--config",
+        default="Simulated_Logs.json",
+        help="Path to simulation config file (default: Simulated_Logs.json)",
     )
     parser.add_argument(
-        '--log-type',
-        choices=['firewall', 'vpn', 'both'],
-        default='firewall',
-        help='Type of logs to ingest (default: firewall)'
+        "--log-type",
+        choices=["firewall", "vpn", "both"],
+        default="firewall",
+        help="Type of logs to ingest (default: firewall)",
     )
     parser.add_argument(
-        '--include-edge-cases',
-        action='store_true',
-        help='Include edge case test logs'
+        "--include-edge-cases", action="store_true", help="Include edge case test logs"
     )
     parser.add_argument(
-        '--batch-size',
+        "--batch-size",
         type=int,
         default=100,
-        help='Number of logs per batch (default: 100)'
+        help="Number of logs per batch (default: 100)",
     )
     parser.add_argument(
-        '--validate-only',
-        action='store_true',
-        help='Validate logs without sending'
+        "--validate-only", action="store_true", help="Validate logs without sending"
     )
 
     args = parser.parse_args()
@@ -214,16 +207,16 @@ def main():
     # Collect logs to send
     logs_to_send = []
 
-    if args.log_type in ['firewall', 'both']:
-        logs_to_send.extend(config.get('sampleEvents', []))
+    if args.log_type in ["firewall", "both"]:
+        logs_to_send.extend(config.get("sampleEvents", []))
         print(f"  - Firewall logs: {len(config.get('sampleEvents', []))}")
 
-    if args.log_type in ['vpn', 'both']:
-        logs_to_send.extend(config.get('vpnSampleEvents', []))
+    if args.log_type in ["vpn", "both"]:
+        logs_to_send.extend(config.get("vpnSampleEvents", []))
         print(f"  - VPN logs: {len(config.get('vpnSampleEvents', []))}")
 
     if args.include_edge_cases:
-        logs_to_send.extend(config.get('edgeCases', []))
+        logs_to_send.extend(config.get("edgeCases", []))
         print(f"  - Edge cases: {len(config.get('edgeCases', []))}")
 
     if not logs_to_send:
@@ -233,8 +226,8 @@ def main():
     print(f"\nTotal logs to process: {len(logs_to_send)}")
 
     # Validate logs
-    schema_key = 'firewall' if args.log_type == 'firewall' else 'vpn'
-    schema = config.get('schemaValidation', {}).get(schema_key, {})
+    schema_key = "firewall" if args.log_type == "firewall" else "vpn"
+    schema = config.get("schemaValidation", {}).get(schema_key, {})
 
     print(f"\n{'='*60}")
     print("Schema Validation")
@@ -244,7 +237,7 @@ def main():
     simulator = DataCollectorSimulator(
         dce_endpoint=args.dce_endpoint,
         dcr_rule_id=args.dcr_rule_id,
-        stream_name=args.stream_name
+        stream_name=args.stream_name,
     )
 
     validation_errors = simulator.validate_logs(logs_to_send, schema)
@@ -285,17 +278,17 @@ def main():
     print(f"Successful:      {results['successful']}")
     print(f"Failed:          {results['failed']}")
 
-    if results['errors']:
+    if results["errors"]:
         print("\nErrors:")
-        for error in results['errors']:
+        for error in results["errors"]:
             print(f"  - {error}")
 
-    if results['successful'] > 0:
+    if results["successful"] > 0:
         print(f"\n{'='*60}")
         print("Verification")
         print(f"{'='*60}\n")
 
-        table_name = args.stream_name.replace('Custom-', '')
+        table_name = args.stream_name.replace("Custom-", "")
         print("Run this KQL query in your Log Analytics workspace to verify:")
         print()
         print(f"  {table_name}")
@@ -308,8 +301,8 @@ def main():
         print("  | take 10")
         print()
 
-    return 0 if results['failed'] == 0 else 1
+    return 0 if results["failed"] == 0 else 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

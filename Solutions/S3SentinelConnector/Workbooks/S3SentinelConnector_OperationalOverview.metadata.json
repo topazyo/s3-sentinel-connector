@@ -1,0 +1,21 @@
+{
+  "version": "Notebook/1.0",
+  "items": [],
+  "isTemplate": true,
+  "templateData": {
+    "version": "1.0.0",
+    "name": "S3 Sentinel Connector - Operational Overview",
+    "description": "Operational dashboard for AWS S3 firewall and VPN ingestion into Microsoft Sentinel.",
+    "author": "Microsoft",
+    "tags": [
+      "AWS",
+      "S3",
+      "Microsoft Sentinel",
+      "Data Connector"
+    ],
+    "source": {
+      "kind": "Solution",
+      "name": "S3SentinelConnector"
+    }
+  }
+}
